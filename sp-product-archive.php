@@ -202,10 +202,14 @@ class SP_Product_Archive
             wp_send_json_error( [ 'message' => 'Product not found.' ] );
         }
 
-        // Put cfb_flavor_selection in $_POST so CFB's woocommerce_add_cart_item_data
-        // filter can read it (same as on the single product page form submit).
-        $_POST['cfb_flavor_selection']    = $cfb_flavor_selection;
-        $_REQUEST['cfb_flavor_selection'] = $cfb_flavor_selection;
+        // Temporarily hide cfb_flavor_selection from $_POST/$_REQUEST before calling
+        // add_to_cart(). bundles.php's woocommerce_add_cart_item_data filter (prio 10)
+        // reads this value and may return false when per-section validation fails
+        // (e.g. overlapping category pools where multiple sections share the same product
+        // pool). That false return can prevent flavor data from reaching the WC session.
+        // We write the data directly to the cart item after add_to_cart() succeeds.
+        $cfb_flavor_selection_backup = $cfb_flavor_selection;
+        unset( $_POST['cfb_flavor_selection'], $_REQUEST['cfb_flavor_selection'] );
 
         // Set up the global WooCommerce product context that CFB's hooks expect.
         // Without this, CFB filters that access $product or get_the_ID() would
@@ -267,6 +271,40 @@ class SP_Product_Archive
             wp_send_json_error( [
                 'message' => implode( ' ', array_filter( $messages ) ) ?: 'Produkt se nepodařilo přidat do košíku.',
             ] );
+        }
+
+        // ── Direct persist: write flavor selection to cart item after successful add ──
+        // bundles.php's woocommerce_add_cart_item_data filter (prio 10) may return false
+        // when per-section validation fails (e.g. overlapping category pools), which can
+        // prevent cfb_flavor_selection from being saved to the WC session.
+        // Writing directly after add_to_cart() guarantees the data is in the session
+        // regardless of how bundles.php's filter chain behaves.
+        if ( $cart_item_key && isset( WC()->cart->cart_contents[ $cart_item_key ] ) ) {
+            $raw_sel_persist = json_decode( wp_unslash( $cfb_flavor_selection_backup ), true );
+            if ( is_array( $raw_sel_persist ) ) {
+                $selected_persist = [];
+                foreach ( $raw_sel_persist as $fid => $fdata ) {
+                    $qty_p = absint( $fdata['qty'] ?? 0 );
+                    if ( $qty_p > 0 ) {
+                        $selected_persist[ absint( $fid ) ] = [
+                            'name' => sanitize_text_field( $fdata['name'] ?? '' ),
+                            'qty'  => $qty_p,
+                        ];
+                    }
+                }
+                if ( ! empty( $selected_persist ) ) {
+                    // Always overwrite – this guarantees fresh data on each add.
+                    // sp_cfb_selection: sanitized format used for cart/order display.
+                    // cfb_flavor_selection: raw decoded array expected by bundles.php's
+                    //   Store API data_callback (which reads this key directly).
+                    // Both are required; see cfb_save_selection_to_cart_item() for the
+                    // same dual-key pattern used in the normal (non-AJAX) add-to-cart path.
+                    WC()->cart->cart_contents[ $cart_item_key ]['sp_cfb_selection']     = $selected_persist;
+                    WC()->cart->cart_contents[ $cart_item_key ]['cfb_flavor_selection'] = $raw_sel_persist;
+                    // Explicitly persist to WC session (survives to next Store API request).
+                    WC()->cart->set_session();
+                }
+            }
         }
 
         // Return refreshed cart fragments so the JS can update the cart widget.
