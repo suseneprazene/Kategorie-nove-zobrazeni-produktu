@@ -718,7 +718,6 @@
       if (innerMod) innerMod.style.display = 'none';
     }
 
-    document.getElementById('sp-cfb-bundle-backdrop').addEventListener('click', closeCfbBundleModal);
     document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCfbBundleModal);
 
     // Klávesa Escape zavře modal

@@ -269,6 +269,38 @@ class SP_Product_Archive
             ] );
         }
 
+        // ── Belt-and-suspenders: directly persist flavor selection into the cart item ──
+        // The woocommerce_add_cart_item_data filter chain (bundles.php prio 10 + our prio 99)
+        // may fail to write the keys in some edge cases. Writing directly after add_to_cart()
+        // guarantees the data is in the session before the Store API reads it.
+        if ( ! empty( $cfb_flavor_selection ) ) {
+            $raw_sel = json_decode( wp_unslash( $cfb_flavor_selection ), true );
+            if ( ! is_array( $raw_sel ) ) {
+                error_log( '[SP_Product_Archive] ajax_cfb_add_to_cart: cfb_flavor_selection JSON parse failed (json_last_error=' . json_last_error() . ')' );
+            } else {
+                $selected = [];
+                foreach ( $raw_sel as $fid => $data ) {
+                    $qty = absint( $data['qty'] ?? 0 );
+                    if ( $qty > 0 ) {
+                        $selected[ absint( $fid ) ] = [
+                            'name' => sanitize_text_field( $data['name'] ?? '' ),
+                            'qty'  => $qty,
+                        ];
+                    }
+                }
+                if ( ! empty( $selected ) && isset( WC()->cart->cart_contents[ $cart_item_key ] ) ) {
+                    if ( empty( WC()->cart->cart_contents[ $cart_item_key ]['sp_cfb_selection'] ) ) {
+                        WC()->cart->cart_contents[ $cart_item_key ]['sp_cfb_selection'] = $selected;
+                    }
+                    if ( empty( WC()->cart->cart_contents[ $cart_item_key ]['cfb_flavor_selection'] ) ) {
+                        WC()->cart->cart_contents[ $cart_item_key ]['cfb_flavor_selection'] = $raw_sel;
+                    }
+                    // Persist the updated cart item data to the WC session.
+                    WC()->cart->set_session();
+                }
+            }
+        }
+
         // Return refreshed cart fragments so the JS can update the cart widget.
         // Wrap in try-catch: rendering the mini cart iterates existing cart items
         // and may invoke CFB hooks that crash if the cart already contains bundle
