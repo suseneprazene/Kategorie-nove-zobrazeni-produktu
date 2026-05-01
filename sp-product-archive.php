@@ -319,8 +319,10 @@ class SP_Product_Archive
      */
     public function cfb_save_selection_to_cart_item( $cart_item_data, int $product_id )
     {
+        // If a prior filter returned non-array (e.g. CFB validation failure in AJAX context),
+        // start fresh with an empty array so we can still persist the selection for display.
         if ( ! is_array( $cart_item_data ) ) {
-            return $cart_item_data; // prior filter (e.g. CFB) returned non-array – pass it through
+            $cart_item_data = [];
         }
 
         if ( empty( $_POST['cfb_flavor_selection'] ) ) {
