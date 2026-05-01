@@ -310,12 +310,13 @@ class SP_Product_Archive
      * plugin's own woocommerce_add_cart_item_data filter (which runs before ours)
      * can return bool false when its own validation fails.  Declaring a strict
      * `array` type would cause a PHP TypeError in that case, aborting the whole
-     * filter chain and hiding the real CFB error.  We return the value unchanged
-     * when it is not an array so WooCommerce can report the real failure reason.
+     * filter chain and hiding the real CFB error.  When the incoming value is not
+     * an array we start fresh with [] so that sp_cfb_selection is always saved
+     * and the selection is visible in the cart (e.g. for archive modal add-to-cart).
      *
      * @param mixed $cart_item_data Existing cart item data (normally array).
      * @param int   $product_id     Product being added.
-     * @return mixed
+     * @return array
      */
     public function cfb_save_selection_to_cart_item( $cart_item_data, int $product_id )
     {
