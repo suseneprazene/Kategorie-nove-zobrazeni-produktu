@@ -172,6 +172,8 @@
 
     if ( ! match ) return { variationId: null, attrs: selected, noMatch: true };
 
+    if ( match.in_stock === false ) return { variationId: match.id, attrs: selected, outOfStock: true };
+
     return { variationId: match.id, attrs: selected };
   }
 
@@ -1116,6 +1118,12 @@
       if (result.noMatch)
       {
         alert('Tato kombinace variant není dostupná.');
+        return;
+      }
+
+      if (result.outOfStock)
+      {
+        alert('Tato varianta není skladem.');
         return;
       }
 

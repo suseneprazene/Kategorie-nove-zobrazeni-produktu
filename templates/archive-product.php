@@ -71,44 +71,53 @@ $products = wc_get_products([
                     $var_attrs[ $normalized_key ] = stripslashes( trim( $attr_val, '"' ) );
                 }
 
+                // Spolehlivá detekce skladu přes get_stock_status() – stejný zdroj
+                // jaký WooCommerce používá pro třídu "outofstock" na frontendu.
+                // get_stock_quantity() > 0 nestačí: WooCommerce synchronizuje
+                // stock_status při každé změně qty, takže outofstock = opravdu nedostupné.
+                $var_in_stock = $var_obj ? ( $var_obj->get_stock_status() === 'instock' ) : false;
+
                 $variations_data[] = [
                     'id'         => $variation['variation_id'],
                     'price_html' => $var_obj ? $var_obj->get_price_html() : $price_html,
                     'image'      => $var_image,
                     'attributes' => $var_attrs,
-                    'in_stock'   => $var_obj ? $var_obj->is_in_stock() : false,
+                    'in_stock'   => $var_in_stock,
+                ];
+            }
+
+            // Navíc projdeme i varianty které get_available_variations() vynechalo
+            // (WooCommerce je může filtrovat). Použijeme get_children() jako zálohu.
+            $all_child_ids     = $product->get_children();
+            $seen_variation_ids = array_column( $variations_data, 'id' );
+            foreach ( $all_child_ids as $child_id )
+            {
+                if ( in_array( $child_id, $seen_variation_ids, true ) ) continue;
+                $var_obj = wc_get_product( $child_id );
+                if ( ! $var_obj ) continue;
+                $var_in_stock = ( $var_obj->get_stock_status() === 'instock' );
+                // Přidáme jen in_stock info – ostatní data nepotřebujeme pro tyto skryté varianty
+                $variations_data[] = [
+                    'id'       => $child_id,
+                    'in_stock' => $var_in_stock,
+                    'hidden'   => true,
                 ];
             }
         }
 
+        // Celkový stock produktu:
+        // Variabilní: skladem = alespoň jedna varianta má stock_status = instock
+        // Simple: přímo get_stock_status()
+        if ( $is_variable ) {
+            $in_stock = ! empty( array_filter( $variations_data, fn($v) => $v['in_stock'] ) );
+        } else {
+            $in_stock = ( $product->get_stock_status() === 'instock' );
+        }
+
         $active_class = ( $index === 0 ) ? ' active' : '';
 
-        // Jméno pro zobrazení – pro variabilní produkty přidáme hodnoty atributů první varianty
+        // Název produktu – jen název bez hodnot variant
         $display_name = $name;
-        if ( $is_variable && ! empty( $variations_data ) )
-        {
-            $first_attrs = $variations_data[0]['attributes']; // e.g. ['attribute_hmotnost' => '50g']
-            $attr_vals   = [];
-            foreach ( $first_attrs as $attr_key => $attr_val )
-            {
-                if ( $attr_val === '' ) continue;
-                // Rekonstruuj název taxonomie (attribute_hmotnost → pa_hmotnost)
-                $tax_name = 'pa_' . preg_replace( '/^attribute_/', '', $attr_key );
-                if ( taxonomy_exists( $tax_name ) )
-                {
-                    $term        = get_term_by( 'slug', $attr_val, $tax_name );
-                    $attr_vals[] = $term ? $term->name : $attr_val;
-                }
-                else
-                {
-                    $attr_vals[] = $attr_val;
-                }
-            }
-            if ( ! empty( $attr_vals ) )
-            {
-                $display_name = $name . ' - ' . implode( ', ', $attr_vals );
-            }
-        }
 
       ?>
 
@@ -133,7 +142,7 @@ $products = wc_get_products([
 
         <?php if ( $is_cfb_bundle && ! empty( $cfb_bundle_items ) ) : ?>
           <div class="sp-cfb-bundle-summary">
-            <strong><?php esc_html_e( 'V ceně balíčku vyberete:', 'sp-product-archive' ); ?></strong>
+            <strong><?php esc_html_e( 'V balíčku si můžeš navolit tyto produkty:', 'sp-product-archive' ); ?></strong>
             <ul>
               <?php foreach ( $cfb_bundle_items as $bitem ) :
                 $blimit = intval( $bitem['limit'] ?? 1 );
@@ -173,9 +182,26 @@ $products = wc_get_products([
                     data-attribute="<?php echo esc_attr( $attr_key_normalized ); ?>"
                   >
                     <option value="">— Vyberte —</option>
-<?php foreach ( $options as $option ) : ?>
-  <option value="<?php echo esc_attr( trim( $option, '"' ) ); ?>">
-    <?php echo esc_html( trim( $option, '"' ) ); ?>
+<?php
+                  // Pro každou option zjistíme, zda existuje varianta s touto hodnotou a je skladem
+                  foreach ( $options as $option ) :
+                    $opt_val     = trim( $option, '"' );
+                    $opt_label   = $opt_val;
+                    $opt_instock = true;
+                    // Zkontroluj ve variations_data, zda existuje varianta s touto hodnotou a je outofstock
+                    foreach ( $variations_data as $vd ) {
+                        if ( isset( $vd['hidden'] ) ) continue;
+                        if ( isset( $vd['attributes'][ $attr_key_normalized ] ) &&
+                             $vd['attributes'][ $attr_key_normalized ] === $opt_val &&
+                             ! $vd['in_stock'] ) {
+                            $opt_instock = false;
+                            break;
+                        }
+                    }
+                    $opt_display = $opt_instock ? $opt_label : $opt_label . ' – není skladem';
+                  ?>
+  <option value="<?php echo esc_attr( $opt_val ); ?>"<?php echo $opt_instock ? '' : ' disabled'; ?>>
+    <?php echo esc_html( $opt_display ); ?>
   </option>
 <?php endforeach; ?>
                   </select>
@@ -190,23 +216,31 @@ $products = wc_get_products([
                 <?php echo $price_html; ?>
               <?php endif; ?>
             </div>
-            <?php if ( ! $is_cfb_bundle ) : ?>
+            <?php if ( ! $is_cfb_bundle && $in_stock ) : ?>
               <input type="number" class="sp-qty sp-inline-qty" value="1" min="1" />
             <?php endif; ?>
             <?php if ( $is_cfb_bundle ) : ?>
-              <button
-                class="custom-product-btn sp-bundle-select-btn"
-                data-product-id="<?php echo esc_attr( $product_id ); ?>"
-              >
-                VÝBĚR PRODUKTŮ
-              </button>
+              <?php if ( $in_stock ) : ?>
+                <button
+                  class="custom-product-btn sp-bundle-select-btn"
+                  data-product-id="<?php echo esc_attr( $product_id ); ?>"
+                >
+                  VÝBĚR PRODUKTŮ
+                </button>
+              <?php else : ?>
+                <span class="sp-out-of-stock">Produkt není skladem</span>
+              <?php endif; ?>
             <?php else : ?>
-              <button
-                class="sp-add-to-cart custom-product-btn sp-inline-cart-btn"
-                data-product-id="<?php echo esc_attr( $product_id ); ?>"
-              >
-                DO KOŠÍKU
-              </button>
+              <?php if ( $in_stock ) : ?>
+                <button
+                  class="sp-add-to-cart custom-product-btn sp-inline-cart-btn"
+                  data-product-id="<?php echo esc_attr( $product_id ); ?>"
+                >
+                  DO KOŠÍKU
+                </button>
+              <?php else : ?>
+                <span class="sp-out-of-stock">Produkt není skladem</span>
+              <?php endif; ?>
             <?php endif; ?>
             <a href="<?php echo esc_url( $permalink ); ?>" class="sp-detail-btn">
               ZOBRAZIT DETAIL
@@ -241,9 +275,24 @@ $products = wc_get_products([
                     data-attribute="<?php echo esc_attr( $attr_key_normalized ); ?>"
                   >
                     <option value="">— Vyberte —</option>
-<?php foreach ( $options as $option ) : ?>
-  <option value="<?php echo esc_attr( trim( $option, '"' ) ); ?>">
-    <?php echo esc_html( trim( $option, '"' ) ); ?>
+<?php
+                  foreach ( $options as $option ) :
+                    $opt_val     = trim( $option, '"' );
+                    $opt_label   = $opt_val;
+                    $opt_instock = true;
+                    foreach ( $variations_data as $vd ) {
+                        if ( isset( $vd['hidden'] ) ) continue;
+                        if ( isset( $vd['attributes'][ $attr_key_normalized ] ) &&
+                             $vd['attributes'][ $attr_key_normalized ] === $opt_val &&
+                             ! $vd['in_stock'] ) {
+                            $opt_instock = false;
+                            break;
+                        }
+                    }
+                    $opt_display = $opt_instock ? $opt_label : $opt_label . ' – není skladem';
+                  ?>
+  <option value="<?php echo esc_attr( $opt_val ); ?>"<?php echo $opt_instock ? '' : ' disabled'; ?>>
+    <?php echo esc_html( $opt_display ); ?>
   </option>
 <?php endforeach; ?>
                   </select>
@@ -252,7 +301,7 @@ $products = wc_get_products([
             </div>
           <?php endif; ?>
 
-          <?php if ( ! $is_cfb_bundle ) : ?>
+          <?php if ( ! $is_cfb_bundle && $in_stock ) : ?>
           <div class="sp-qty-row">
             <input type="number" class="sp-qty" value="1" min="1" />
           </div>
@@ -260,19 +309,27 @@ $products = wc_get_products([
 
           <div class="sp-action-row">
             <?php if ( $is_cfb_bundle ) : ?>
-              <button
-                class="custom-product-btn sp-bundle-select-btn"
-                data-product-id="<?php echo esc_attr( $product_id ); ?>"
-              >
-                VÝBĚR PRODUKTŮ
-              </button>
+              <?php if ( $in_stock ) : ?>
+                <button
+                  class="custom-product-btn sp-bundle-select-btn"
+                  data-product-id="<?php echo esc_attr( $product_id ); ?>"
+                >
+                  VÝBĚR PRODUKTŮ
+                </button>
+              <?php else : ?>
+                <span class="sp-out-of-stock">Produkt není skladem</span>
+              <?php endif; ?>
             <?php else : ?>
-              <button
-                class="sp-add-to-cart custom-product-btn"
-                data-product-id="<?php echo esc_attr( $product_id ); ?>"
-              >
-                DO KOŠÍKU
-              </button>
+              <?php if ( $in_stock ) : ?>
+                <button
+                  class="sp-add-to-cart custom-product-btn"
+                  data-product-id="<?php echo esc_attr( $product_id ); ?>"
+                >
+                  DO KOŠÍKU
+                </button>
+              <?php else : ?>
+                <span class="sp-out-of-stock">Produkt není skladem</span>
+              <?php endif; ?>
             <?php endif; ?>
             <a href="<?php echo esc_url( $permalink ); ?>" class="sp-detail-btn">
               ZOBRAZIT DETAIL

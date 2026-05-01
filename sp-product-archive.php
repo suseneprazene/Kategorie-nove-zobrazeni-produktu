@@ -25,6 +25,7 @@ class SP_Product_Archive
         add_filter( 'woocommerce_add_cart_item_data',          [ $this, 'cfb_save_selection_to_cart_item' ], 99, 2 );
         add_filter( 'woocommerce_get_item_data',               [ $this, 'cfb_display_selection_in_cart' ], 10, 2 );
         add_action( 'woocommerce_checkout_create_order_line_item', [ $this, 'cfb_add_selection_to_order_meta' ], 10, 4 );
+        add_filter( 'woocommerce_get_cart_item_from_session',  [ $this, 'cfb_restore_selection_from_session' ], 10, 2 );
     }
 
     public function override_category_template( $template )
@@ -344,7 +345,12 @@ class SP_Product_Archive
         }
 
         if ( ! empty( $selected ) ) {
-            $cart_item_data['sp_cfb_selection'] = $selected;
+            $cart_item_data['sp_cfb_selection']     = $selected;
+            // Also preserve under cfb_flavor_selection so bundles.php
+            // Store API data_callback (which reads cfb_flavor_selection) works.
+            if ( empty( $cart_item_data['cfb_flavor_selection'] ) ) {
+                $cart_item_data['cfb_flavor_selection'] = $sel;
+            }
         }
 
         return $cart_item_data;
@@ -360,12 +366,27 @@ class SP_Product_Archive
      */
     public function cfb_display_selection_in_cart( array $item_data, array $cart_item ): array
     {
-        if ( empty( $cart_item['sp_cfb_selection'] ) ) {
+        // Support both storage keys: sp_cfb_selection (our own) and
+        // cfb_flavor_selection (bundles.php native key).
+        $selection = [];
+        if ( ! empty( $cart_item['sp_cfb_selection'] ) ) {
+            foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+                $selection[] = $data;
+            }
+        } elseif ( ! empty( $cart_item['cfb_flavor_selection'] ) ) {
+            foreach ( $cart_item['cfb_flavor_selection'] as $data ) {
+                if ( isset( $data['qty'] ) && $data['qty'] > 0 ) {
+                    $selection[] = $data;
+                }
+            }
+        }
+
+        if ( empty( $selection ) ) {
             return $item_data;
         }
 
         $lines = [];
-        foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+        foreach ( $selection as $data ) {
             if ( ! empty( $data['name'] ) ) {
                 $lines[] = esc_html( $data['qty'] . '× ' . $data['name'] );
             }
@@ -399,11 +420,24 @@ class SP_Product_Archive
         array $cart_item,
         \WC_Order $order
     ): void {
-        if ( empty( $cart_item['sp_cfb_selection'] ) ) {
+        $selection = [];
+        if ( ! empty( $cart_item['sp_cfb_selection'] ) ) {
+            foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+                $selection[] = $data;
+            }
+        } elseif ( ! empty( $cart_item['cfb_flavor_selection'] ) ) {
+            foreach ( $cart_item['cfb_flavor_selection'] as $data ) {
+                if ( isset( $data['qty'] ) && $data['qty'] > 0 ) {
+                    $selection[] = $data;
+                }
+            }
+        }
+
+        if ( empty( $selection ) ) {
             return;
         }
 
-        foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+        foreach ( $selection as $data ) {
             if ( empty( $data['name'] ) ) {
                 continue;
             }
@@ -416,6 +450,21 @@ class SP_Product_Archive
             );
         }
     }
-}
+
+
+      /**
+     * Restore CFB flavor selection keys when WooCommerce rebuilds cart from session.
+     */
+    public function cfb_restore_selection_from_session( array $cart_item, array $values ): array
+    {
+        if ( isset( $values['sp_cfb_selection'] ) && is_array( $values['sp_cfb_selection'] ) ) {
+            $cart_item['sp_cfb_selection'] = $values['sp_cfb_selection'];
+        }
+        if ( isset( $values['cfb_flavor_selection'] ) && is_array( $values['cfb_flavor_selection'] ) ) {
+            $cart_item['cfb_flavor_selection'] = $values['cfb_flavor_selection'];
+        }
+        return $cart_item;
+    }
+}   // ← uzavření třídy SP_Product_Archive
 
 new SP_Product_Archive();
