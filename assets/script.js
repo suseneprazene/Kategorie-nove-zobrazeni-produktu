@@ -276,84 +276,109 @@
       console.groupEnd();
     }
 
-    // Sleduj kliknutí na +/- tlačítka cfb pluginu (delegace na document)
-    document.addEventListener('click', function (e)
-    {
+    // ── CFB Add-to-cart diagnostika ──────────────────────────────────────────
+    // Loguje vše co vstupuje do sp_cfb_add_to_cart a co přijde zpět ze serveru.
+    // Aktivní pokud window.spCfbDebug === true (výchozí).
+
+    // Interceptuj fetch (Store API) a jQuery AJAX (admin-ajax.php)
+    (function () {
       if ( ! window.spCfbDebug) return;
-      var isPlus  = e.target.closest('.cfb-plus');
-      var isMinus = e.target.closest('.cfb-minus');
-      if ( ! isPlus && ! isMinus) return;
 
-      var btn      = isPlus || isMinus;
-      var flavorId = btn.dataset.flavorId  || btn.dataset.flavor_id  || '?';
-      var row      = btn.closest('[data-flavor-id]') || btn.closest('[data-flavor_id]') || btn.parentElement;
+      // ── Intercept XMLHttpRequest (jQuery $.ajax) ──────────────────────────
+      var origOpen = XMLHttpRequest.prototype.open;
+      var origSend = XMLHttpRequest.prototype.send;
 
-      // cfb nemusí mít input[type="number"] – hledáme cokoliv co drží qty (input nebo span)
-      // NOTE: btn.closest('[data-flavor-id]') returns the button itself (it carries that attribute),
-      // so we use btn.parentElement to search inside the actual row container instead.
-      var qtyRow   = btn.parentElement;
-      var qtyInput = qtyRow
-        ? (qtyRow.querySelector('input[type="number"]') ||
-           qtyRow.querySelector('.cfb-qty') ||
-           qtyRow.querySelector('[class*="qty"]') ||
-           qtyRow.querySelector('[class*="count"]'))
-        : null;
-      var qtyBefore = qtyInput ? (qtyInput.value !== undefined ? qtyInput.value : qtyInput.textContent) : '? (žádný qty element)';
+      XMLHttpRequest.prototype.open = function (method, url) {
+        this._spUrl    = url;
+        this._spMethod = method;
+        return origOpen.apply(this, arguments);
+      };
 
-      console.group('%c[CFB] ' + (isPlus ? '➕ PLUS' : '➖ MINUS') + ' klik', 'color:#27ae60;font-weight:bold');
-      console.log('flavorId        :', flavorId);
-      console.log('qty PŘED klikem :', qtyBefore);
-      console.log('btn element     :', btn);
-      console.log('btn outerHTML   :', btn.outerHTML);
-      console.log('btn dataset     :', JSON.stringify(btn.dataset));
-      console.log('row element     :', row);
+      XMLHttpRequest.prototype.send = function (body) {
+        var xhr = this;
 
-      // Před klikem: stav #cfb_flavor_selection
-      var selBefore = document.getElementById('cfb_flavor_selection');
-      var rawBefore = selBefore ? selBefore.value : '(#cfb_flavor_selection nenalezeno!)';
-      console.log('#cfb_flavor_selection PŘED:', rawBefore || '(prázdné)');
-      console.log('cfbRequiredQty  :', cfbRequiredQty);
+        if (xhr._spUrl && xhr._spUrl.indexOf('admin-ajax.php') !== -1 && body) {
+          var params = {};
+          try {
+            body.split('&').forEach(function (pair) {
+              var parts = pair.split('=');
+              params[decodeURIComponent(parts[0])] = decodeURIComponent((parts[1] || '').replace(/\+/g, ' '));
+            });
+          } catch (ex) { params = { raw: body }; }
 
-      // Po 0 ms přečteme stav po zpracování cfb handlerem
-      setTimeout(function ()
-      {
-        var qtyAfter = qtyInput
-          ? (qtyInput.value !== undefined ? qtyInput.value : qtyInput.textContent)
-          : '? (žádný qty element)';
-        var selInput = document.getElementById('cfb_flavor_selection');
-        var rawAfter = selInput ? selInput.value : '(#cfb_flavor_selection nenalezeno!)';
-        var parsed   = null;
-        try { parsed = rawAfter ? JSON.parse(rawAfter) : null; } catch (err) { parsed = '⚠ JSON parse chyba: ' + err.message; }
+          if (params.action === 'sp_cfb_add_to_cart') {
+            var sel = null;
+            try { sel = params.cfb_flavor_selection ? JSON.parse(params.cfb_flavor_selection) : null; } catch (ex) { sel = '⚠ JSON parse error'; }
+            var total = 0;
+            if (sel && typeof sel === 'object') {
+              total = Object.values(sel).reduce(function (s, v) { return s + parseInt(v.qty || 0, 10); }, 0);
+            }
 
-        var total = 0;
-        if (parsed && typeof parsed === 'object')
-        {
-          total = Object.values(parsed).reduce(function (s, v) { return s + parseInt(v.qty || 0, 10); }, 0);
+            console.group('%c[CFB DIAG] 📤 sp_cfb_add_to_cart – REQUEST', 'color:#8e44ad;font-weight:bold');
+            console.log('product_id           :', params.product_id);
+            console.log('nonce                :', params.nonce ? '✅ přítomen' : '❌ CHYBÍ');
+            console.log('cfb_flavor_selection :', sel);
+            console.log('total qty v selekci  :', total);
+            console.log('raw POST body        :', body);
+            console.groupEnd();
+
+            xhr.addEventListener('load', function () {
+              var resp;
+              try { resp = JSON.parse(xhr.responseText); } catch (ex) { resp = xhr.responseText; }
+
+              console.group('%c[CFB DIAG] 📥 sp_cfb_add_to_cart – RESPONSE', 'color:#8e44ad;font-weight:bold');
+              console.log('HTTP status      :', xhr.status);
+              console.log('success          :', resp && resp.success);
+              console.log('cart_item_key    :', resp && resp.data && resp.data.cart_item_key);
+              console.log('error message    :', resp && resp.data && resp.data.message || '(žádná)');
+              console.log('fragment keys    :', resp && resp.data && resp.data.fragments ? Object.keys(resp.data.fragments) : []);
+              console.log('raw response     :', resp);
+              console.groupEnd();
+
+              if (resp && resp.success && resp.data && resp.data.cart_item_key) {
+                // Počkej 600 ms a zkontroluj Store API košík
+                setTimeout(function () {
+                  var nonce = window.wcStoreApiNonce || '';
+                  var headers = { 'Content-Type': 'application/json' };
+                  if (nonce) headers['Nonce'] = nonce;
+
+                  fetch('/wp-json/wc/store/v1/cart', { credentials: 'include', headers: headers })
+                    .then(function (r) { return r.json(); })
+                    .then(function (cart) {
+                      console.group('%c[CFB DIAG] 🛒 Store API /wc/store/v1/cart po přidání', 'color:#1a6e3c;font-weight:bold');
+                      console.log('Počet položek:', cart.items ? cart.items.length : 'N/A');
+                      if (cart.items) {
+                        cart.items.forEach(function (item, i) {
+                          console.group('[' + i + '] ' + item.name + ' (key: ' + item.key + ')');
+                          console.log('item_data            :', item.item_data);
+                          console.log('extensions.cfb_flavor:', item.extensions && item.extensions.cfb_flavor);
+                          var hasFlavors = item.extensions && item.extensions.cfb_flavor && item.extensions.cfb_flavor.selected_flavors && item.extensions.cfb_flavor.selected_flavors.length > 0;
+                          var hasItemData = item.item_data && item.item_data.length > 0;
+                          if ( ! hasFlavors && ! hasItemData) {
+                            console.warn('⚠ PROBLÉM: cfb_flavor_selection se NEZAPSALO do session!');
+                          } else {
+                            console.log('✅ Výběr v session nalezen');
+                          }
+                          console.groupEnd();
+                        });
+                      }
+                      console.groupEnd();
+                    })
+                    .catch(function (err) {
+                      console.warn('[CFB DIAG] Store API fetch selhal:', err);
+                    });
+                }, 600);
+              }
+            });
+          }
         }
 
-        console.log('qty PO kliknutí :', qtyAfter);
-        console.log('#cfb_flavor_selection PO:', rawAfter || '(prázdné)');
-        console.log('parsed PO       :', parsed);
-        console.log('total PO        :', total, '/ required:', cfbRequiredQty,
-          total === cfbRequiredQty ? '→ ✅ SHODA (btn by měl být ENABLED)' : '→ 🔴 NESHODUJE SE (btn zůstane disabled)');
+        return origSend.apply(this, arguments);
+      };
 
-        if (rawBefore === rawAfter)
-        {
-          console.warn('⚠ #cfb_flavor_selection se po kliknutí NEZMĚNILO – cfb plugin neaktualizoval skrytý input!');
-        }
-
-        console.groupEnd();
-
-        // Force diff log (vždy, i bez změny)
-        var prev = _cfbLastRawSelection;
-        _cfbLastRawSelection = null; // reset, aby cfbLogSelectionDiff vždy zlogoval
-        cfbLogSelectionDiff(isPlus ? '+klik' : '-klik');
-        if (prev === rawAfter)
-        {
-          // Nic se nezměnilo – zalogujeme bez diff filtru pro jistotu
-        }
-      }, 0);
-    }, true); // capture=true → spustíme dřív než cfb handler (stopPropagation nebrání)
+      console.log('%c[CFB DIAG] Interceptor aktivní – čeká na sp_cfb_add_to_cart', 'color:#8e44ad;font-size:12px');
+    }());
+    // ── CFB Add-to-cart diagnostika END ──────────────────────────────────────
 
     // ── CFB Debug Logger END ──────────────────────────────────────────────────
 
