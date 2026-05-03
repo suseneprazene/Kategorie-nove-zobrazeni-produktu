@@ -20,6 +20,9 @@ class SP_Product_Archive
         add_action( 'wp_ajax_sp_cfb_add_to_cart',        [ $this, 'ajax_cfb_add_to_cart' ] );
         add_action( 'wp_ajax_nopriv_sp_cfb_add_to_cart', [ $this, 'ajax_cfb_add_to_cart' ] );
 
+        // Zakáže redirect na košík při AJAX – jinak WC vrátí error:true místo fragments
+        add_filter( 'woocommerce_cart_redirect_after_add', [ $this, 'disable_redirect_on_ajax' ] );
+
         // Cart + order display of CFB flavor selection.
         // Priority 99 ensures we run after any CFB own filter on the same hook.
         add_filter( 'woocommerce_add_cart_item_data',          [ $this, 'cfb_save_selection_to_cart_item' ], 99, 2 );
@@ -49,14 +52,14 @@ class SP_Product_Archive
             'sp-product-archive',
             plugin_dir_url( __FILE__ ) . 'assets/style.css',
             [],
-            '1.1.0'
+            '1.2.0'
         );
 
         wp_enqueue_script(
             'sp-product-archive',
             plugin_dir_url( __FILE__ ) . 'assets/script.js',
             [ 'jquery' ],
-            '1.1.0',
+            '1.2.0',
             true
         );
 
@@ -64,7 +67,7 @@ class SP_Product_Archive
         wp_localize_script( 'sp-product-archive', 'SP_Archive', [
             'ajax_url'      => admin_url( 'admin-ajax.php' ),
             'wc_ajax_url'   => WC_AJAX::get_endpoint( '%%endpoint%%' ),
-            'nonce'         => wp_create_nonce( 'sp-add-to-cart' ),
+            'nonce'         => wp_create_nonce( 'add-to-cart' ),
             'currency'      => get_woocommerce_currency_symbol(),
         ]);
     }
@@ -467,6 +470,13 @@ class SP_Product_Archive
             $cart_item['cfb_flavor_selection'] = $values['cfb_flavor_selection'];
         }
         return $cart_item;
+    }
+    public function disable_redirect_on_ajax( bool $redirect ): bool
+    {
+        if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {
+            return false;
+        }
+        return $redirect;
     }
 }   // ← uzavření třídy SP_Product_Archive
 

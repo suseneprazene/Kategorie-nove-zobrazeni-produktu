@@ -62,12 +62,10 @@ $products = wc_get_products([
 
                 foreach ( $variation['attributes'] as $attr_key => $attr_val )
                 {
-                    // attr_key z get_available_variations() má tvar 'attribute_pa_hmotnost'
-                    // select generuje klíč 'attribute_' . sanitize_title( str_replace('pa_', '', $attr_name) )
-                    // = 'attribute_hmotnost'
-                    // → sjednotíme: stripneme prefix 'attribute_pa_' nebo 'attribute_' a dáme zpět 'attribute_'
-                    $stripped               = preg_replace( '/^attribute_(?:pa_)?/', '', $attr_key );
-                    $normalized_key         = 'attribute_' . sanitize_title( $stripped );
+                    // Normalizujeme klíč: attribute_pa_varianty → attribute_varianty
+                    // Selecty generují klíče bez pa_, takže JS porovnání sedí.
+                    // pa_ prefix se obnoví v JS těsně před odesláním na WC server.
+                    $normalized_key = preg_replace( '/^attribute_pa_/', 'attribute_', $attr_key );
                     $var_attrs[ $normalized_key ] = stripslashes( trim( $attr_val, '"' ) );
                 }
 
@@ -173,7 +171,7 @@ $products = wc_get_products([
                 $label = wc_attribute_label( $attr_name );
                 // Klíč sjednocen s $normalized_key výše:
                 // stripneme 'pa_' prefix pokud existuje, pak sanitize_title
-                $attr_key_normalized = 'attribute_' . sanitize_title( preg_replace( '/^pa_/', '', $attr_name ) );
+$attr_key_normalized = 'attribute_' . sanitize_title( preg_replace( '/^pa_/', '', $attr_name ) );
               ?>
                 <div class="sp-variation-row">
                   <label><?php echo esc_html( $label ); ?></label>
