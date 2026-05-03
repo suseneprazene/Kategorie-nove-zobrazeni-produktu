@@ -147,7 +147,7 @@
       return { variationId: null, attrs: {} };
     }
 
-    const selects  = item.querySelectorAll('.sp-inline-variation-select');
+    const selects  = item.querySelectorAll('.sp-inline-variation-select, .sp-variation-select');
     const selected = {};
 
     selects.forEach(function (sel)

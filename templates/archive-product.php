@@ -187,17 +187,23 @@ $products = wc_get_products([
                   foreach ( $options as $option ) :
                     $opt_val     = trim( $option, '"' );
                     $opt_label   = $opt_val;
-                    $opt_instock = true;
-                    // Zkontroluj ve variations_data, zda existuje varianta s touto hodnotou a je outofstock
+                    $opt_instock = false;
+                    $opt_has_matching_variant = false;
+                    // Zakázat option pouze pokud VŠECHNY varianty s danou hodnotou nejsou skladem
                     foreach ( $variations_data as $vd ) {
                         if ( isset( $vd['hidden'] ) ) continue;
-                        if ( isset( $vd['attributes'][ $attr_key_normalized ] ) &&
-                             $vd['attributes'][ $attr_key_normalized ] === $opt_val &&
-                             ! $vd['in_stock'] ) {
-                            $opt_instock = false;
+                        if ( ! isset( $vd['attributes'][ $attr_key_normalized ] ) ) continue;
+                        $attr_val_match = $vd['attributes'][ $attr_key_normalized ];
+                        // Prázdný string = „any" → odpovídá všem hodnotám atributu
+                        if ( $attr_val_match !== '' && $attr_val_match !== $opt_val ) continue;
+                        $opt_has_matching_variant = true;
+                        if ( $vd['in_stock'] ) {
+                            $opt_instock = true;
                             break;
                         }
                     }
+                    // Pokud pro tuto hodnotu neexistuje žádná varianta v datech, považujeme za dostupnou
+                    if ( ! $opt_has_matching_variant ) $opt_instock = true;
                     $opt_display = $opt_instock ? $opt_label : $opt_label . ' – není skladem';
                   ?>
   <option value="<?php echo esc_attr( $opt_val ); ?>"<?php echo $opt_instock ? '' : ' disabled'; ?>>
@@ -279,16 +285,23 @@ $products = wc_get_products([
                   foreach ( $options as $option ) :
                     $opt_val     = trim( $option, '"' );
                     $opt_label   = $opt_val;
-                    $opt_instock = true;
+                    $opt_instock = false;
+                    $opt_has_matching_variant = false;
+                    // Zakázat option pouze pokud VŠECHNY varianty s danou hodnotou nejsou skladem
                     foreach ( $variations_data as $vd ) {
                         if ( isset( $vd['hidden'] ) ) continue;
-                        if ( isset( $vd['attributes'][ $attr_key_normalized ] ) &&
-                             $vd['attributes'][ $attr_key_normalized ] === $opt_val &&
-                             ! $vd['in_stock'] ) {
-                            $opt_instock = false;
+                        if ( ! isset( $vd['attributes'][ $attr_key_normalized ] ) ) continue;
+                        $attr_val_match = $vd['attributes'][ $attr_key_normalized ];
+                        // Prázdný string = „any" → odpovídá všem hodnotám atributu
+                        if ( $attr_val_match !== '' && $attr_val_match !== $opt_val ) continue;
+                        $opt_has_matching_variant = true;
+                        if ( $vd['in_stock'] ) {
+                            $opt_instock = true;
                             break;
                         }
                     }
+                    // Pokud pro tuto hodnotu neexistuje žádná varianta v datech, považujeme za dostupnou
+                    if ( ! $opt_has_matching_variant ) $opt_instock = true;
                     $opt_display = $opt_instock ? $opt_label : $opt_label . ' – není skladem';
                   ?>
   <option value="<?php echo esc_attr( $opt_val ); ?>"<?php echo $opt_instock ? '' : ' disabled'; ?>>
@@ -322,7 +335,7 @@ $products = wc_get_products([
             <?php else : ?>
               <?php if ( $in_stock ) : ?>
                 <button
-                  class="sp-add-to-cart custom-product-btn"
+                  class="sp-add-to-cart sp-inline-cart-btn custom-product-btn"
                   data-product-id="<?php echo esc_attr( $product_id ); ?>"
                 >
                   DO KOŠÍKU
