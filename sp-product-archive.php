@@ -19,6 +19,8 @@ class SP_Product_Archive
         add_action( 'wp_ajax_nopriv_sp_cfb_bundle_ui',  [ $this, 'ajax_cfb_bundle_ui' ] );
         add_action( 'wp_ajax_sp_cfb_add_to_cart',        [ $this, 'ajax_cfb_add_to_cart' ] );
         add_action( 'wp_ajax_nopriv_sp_cfb_add_to_cart', [ $this, 'ajax_cfb_add_to_cart' ] );
+        add_action( 'wp_ajax_sp_add_to_cart',             [ $this, 'ajax_sp_add_to_cart' ] );
+        add_action( 'wp_ajax_nopriv_sp_add_to_cart',      [ $this, 'ajax_sp_add_to_cart' ] );
 
         // Zakáže redirect na košík při AJAX – jinak WC vrátí error:true místo fragments
         add_filter( 'woocommerce_cart_redirect_after_add', [ $this, 'disable_redirect_on_ajax' ] );
@@ -68,6 +70,7 @@ class SP_Product_Archive
             'ajax_url'      => admin_url( 'admin-ajax.php' ),
             'wc_ajax_url'   => WC_AJAX::get_endpoint( '%%endpoint%%' ),
             'nonce'         => wp_create_nonce( 'add-to-cart' ),
+            'sp_nonce'      => wp_create_nonce( 'sp_add_to_cart' ),
             'currency'      => get_woocommerce_currency_symbol(),
         ]);
     }
@@ -471,6 +474,96 @@ class SP_Product_Archive
         }
         return $cart_item;
     }
+
+    /**
+     * AJAX handler: přidá jednoduchý nebo variabilní produkt do košíku.
+     * Používá WC()->cart->add_to_cart() přímo – funguje i bez WC session cookie.
+     */
+    public function ajax_sp_add_to_cart()
+    {
+        check_ajax_referer( 'sp_add_to_cart', 'security' );
+
+        $product_id   = absint( $_POST['product_id'] ?? 0 );
+        $variation_id = absint( $_POST['variation_id'] ?? 0 );
+        $quantity     = max( 1, absint( $_POST['quantity'] ?? 1 ) );
+        $attributes   = [];
+
+        // JS posílá klíče normalizované bez pa_ prefixu (attribute_varianty).
+        // WC()->cart->add_to_cart() vyžaduje původní klíče s pa_ prefixem
+        // pro taxonomy atributy (attribute_pa_varianty). Obnovíme prefix
+        // pokud daný atribut existuje jako WC taxonomy.
+        foreach ( $_POST as $key => $value ) {
+            if ( strpos( $key, 'attribute_' ) !== 0 ) continue;
+
+            $clean_val = sanitize_text_field( wp_unslash( $value ) );
+            $attr_slug = substr( $key, strlen( 'attribute_' ) ); // např. "varianty"
+
+            // Pokud taxonomy pa_{slug} existuje, použij klíč s pa_ prefixem
+            if ( taxonomy_exists( 'pa_' . $attr_slug ) ) {
+                $attributes[ 'attribute_pa_' . $attr_slug ] = $clean_val;
+            } else {
+                $attributes[ $key ] = $clean_val;
+            }
+        }
+
+        if ( ! $product_id ) {
+            wp_send_json_error( [ 'message' => 'Chybí product_id.' ] );
+        }
+
+        // Inicializovat WC session pokud ještě neexistuje
+        if ( ! WC()->session->has_session() ) {
+            WC()->session->set_customer_session_cookie( true );
+        }
+
+        wc_clear_notices();
+
+        $cart_item_key = WC()->cart->add_to_cart(
+            $product_id,
+            $quantity,
+            $variation_id,
+            $attributes
+        );
+
+        if ( false === $cart_item_key ) {
+            $error_notices = wc_get_notices( 'error' );
+            $messages      = array_map(
+                static function ( $n ) {
+                    return is_array( $n ) ? wp_strip_all_tags( $n['notice'] ?? '' ) : wp_strip_all_tags( $n );
+                },
+                $error_notices
+            );
+            wc_clear_notices();
+            wp_send_json_error( [
+                'message' => implode( ' ', array_filter( $messages ) ) ?: 'Produkt se nepodařilo přidat do košíku.',
+            ] );
+        }
+
+        WC()->cart->calculate_totals();
+
+        // Použít stejný mechanismus jako WC_AJAX::get_refreshed_fragments()
+        // aby se vrátily VŠECHNY fragmenty registrované tématem i pluginy
+        // (včetně ikonky košíku, počítadla apod.).
+        $fragments = apply_filters( 'woocommerce_add_to_cart_fragments', [] );
+
+        // Přidat mini-cart fragment pokud ho filtr neobsahuje
+        if ( ! isset( $fragments['div.widget_shopping_cart_content'] ) ) {
+            try {
+                ob_start();
+                woocommerce_mini_cart();
+                $mini_cart = ob_get_clean();
+                $fragments['div.widget_shopping_cart_content'] = '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>';
+            } catch ( \Throwable $e ) {
+                if ( ob_get_level() ) ob_end_clean();
+            }
+        }
+
+        wp_send_json_success( [
+            'cart_item_key' => $cart_item_key,
+            'fragments'     => $fragments,
+            'cart_hash'     => WC()->cart->get_cart_hash(),
+        ] );
+    }
+
     public function disable_redirect_on_ajax( bool $redirect ): bool
     {
         if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {

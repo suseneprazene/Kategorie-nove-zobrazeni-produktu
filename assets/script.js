@@ -36,18 +36,19 @@
     btn.disabled       = true;
     btn.textContent    = '…';
 
-    if (typeof SP_Archive === 'undefined' || ! SP_Archive.wc_ajax_url)
+    if (typeof SP_Archive === 'undefined' || ! SP_Archive.ajax_url)
     {
-      console.error('❌ SP_Archive.wc_ajax_url není dostupný');
+      console.error('❌ SP_Archive.ajax_url není dostupný');
       btn.textContent = 'Chyba konfigurace';
       btn.disabled    = false;
       return;
     }
 
     const data = {
-      product_id:    productId,
-      quantity:      qty,
-      'add-to-cart': variationId || productId,
+      action:      'sp_add_to_cart',
+      security:    SP_Archive.sp_nonce,
+      product_id:  productId,
+      quantity:    qty,
     };
 
     if (variationId)
@@ -63,30 +64,31 @@
       });
     }
 
-    console.group('🛒 addToCart – odesílám přes wc-ajax=add_to_cart');
+    console.group('🛒 addToCart – odesílám přes admin-ajax sp_add_to_cart');
     console.log('data:', data);
     console.groupEnd();
 
     $.ajax(
     {
-      url:    SP_Archive.wc_ajax_url.replace('%%endpoint%%', 'add_to_cart'),
+      url:    SP_Archive.ajax_url,
       method: 'POST',
       data:   data,
       success: function (response)
       {
         console.log('✅ response:', response);
 
-        if (response && response.error && response.product_url)
+        if ( ! response || ! response.success)
         {
-          console.error('❌ WC chyba:', response.product_url);
+          const msg = (response && response.data && response.data.message) || 'Chyba';
+          console.error('❌ Chyba:', msg);
           btn.textContent = 'Chyba';
           setTimeout(function () { btn.textContent = originalText; btn.disabled = false; }, 2000);
           return;
         }
 
-        if (response && response.fragments)
+        if (response.data && response.data.fragments)
         {
-          $.each(response.fragments, function (key, value)
+          $.each(response.data.fragments, function (key, value)
           {
             if ($(key).length) $(key).replaceWith(value);
           });
@@ -182,7 +184,18 @@
 
     console.log('✅ Variace nalezena a skladem. ID:', match.id);
     console.groupEnd();
-return { variationId: match.id, attrs: match.attributes };
+
+    // Obnovit pa_ prefix pro taxonomy atributy.
+    // PHP archive-product.php normalizuje attribute_pa_varianty → attribute_varianty
+    // aby JS selecty seděly. Před odesláním na server musíme prefix obnovit,
+    // jinak WC()->cart->add_to_cart() vrátí "Neplatná hodnota pro Varianty".
+    const attrsWithPa = {};
+    Object.keys(match.attributes).forEach(function(key) {
+      const paKey = key.replace(/^attribute_(?!pa_)/, 'attribute_pa_');
+      attrsWithPa[paKey] = match.attributes[key];
+    });
+
+    return { variationId: match.id, attrs: attrsWithPa };
   }
 
   // ── Inicializace ─────────────────────────────────────────────
