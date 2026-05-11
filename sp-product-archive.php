@@ -396,11 +396,11 @@ class SP_Product_Archive
         }
 
         if ( ! empty( $lines ) ) {
-            $item_data[] = [
+ /*           $item_data[] = [
                 'key'   => __( 'Výběr balíčku', 'sp-product-archive' ),
                 'value' => implode( '<br>', $lines ),
                 'display' => '',
-            ];
+            ]; */
         }
 
         return $item_data;

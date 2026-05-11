@@ -271,6 +271,32 @@
     var cfbPollInterval      = null;
     var cfbAddToCartNonce    = null;
 
+    // ── CFB Manual override – cross-section + button ──────────────────────────
+    // CFB enforces a per-data-category total limit. When a bundle has multiple
+    // sections that all share the same data-category value, CFB stops accepting
+    // + clicks once the first section's limit is reached – even though other
+    // sections still have capacity.
+    //
+    // This listener detects a blocked + click (cfb_flavor_selection unchanged),
+    // verifies the global total hasn't been reached AND the specific section
+    // containing the button still has capacity, then manually increments the
+    // flavor qty in the JSON and the per-section DOM visual counter.
+
+    /**
+     * Walks up the DOM from plusBtn to find its section container.
+     * A valid section container is an ancestor (before #sp-cfb-bundle-body) that
+     * satisfies BOTH conditions simultaneously:
+     *   1. It contains fewer .cfb-plus[data-flavor-id] buttons than the total in
+     *      the body (i.e. it is a proper sub-set / one section, not the whole bundle).
+     *   2. Its textContent contains a "Limit: N …" header injected by CFB.
+     * Walking continues past ancestors that satisfy only one of the two conditions.
+     *
+     * Returns { limit, total } where total is the sum of DOM visual counters
+     * (previousElementSibling of each .cfb-plus in the section) so that flavors
+     * shared between sections are counted per-section rather than globally.
+     *
+     * Returns null when the section structure cannot be determined.
+     */
     function cfbGetSectionInfoFromDom(plusBtn)
     {
       var bodyEl     = document.getElementById('sp-cfb-bundle-body');
@@ -421,6 +447,10 @@
                 if (qtyDisplay.tagName === 'INPUT') { qtyDisplay.value = caseCDisplay; }
                 else { qtyDisplay.textContent = caseCDisplay; }
               }
+
+              // Case B is still guarded by its own condition below; it will not
+              // double-decrement because displayAfter will now equal caseCDisplay
+              // (which is ≠ displayBefore unless displayBefore was 0, excluded by Case A).
             }
           }
           catch (ex) { /* JSON parse error – fall through */ }
@@ -473,6 +503,7 @@
       if (innerMod) innerMod.style.display = 'none';
     }
 
+    // Klik na backdrop NEMÁ modal zavřít – zavírá se jen křížkem
     document.getElementById('sp-cfb-bundle-backdrop').addEventListener('click', function (e)
     {
       e.preventDefault();
@@ -534,8 +565,11 @@
           cfbRequiredQty      = parseInt(response.data.required_qty || 0, 10);
           cfbAddToCartNonce   = response.data.add_to_cart_nonce || null;
 
+          // jQuery .html() vloží HTML vč. cfb inline <script> tagy.
           $(bodyEl).html(response.data.html);
 
+          // cfb píše do #cfb_flavor_selection přes jQuery .val() – to nativní
+          // eventy nespustí. Proto pollujeme každých 150 ms dokud je modal otevřen.
           if (cfbPollInterval) clearInterval(cfbPollInterval);
           cfbPollInterval = setInterval(syncCfbAddBtn, 150);
 
@@ -579,6 +613,12 @@
       addBtn.textContent = '\u2026';
       document.getElementById('sp-cfb-bundle-msg').textContent = '';
 
+      // Použijeme vlastní WP AJAX endpoint sp_cfb_add_to_cart.
+      // Tento endpoint volá WC()->cart->add_to_cart() přímo – CFB bundle produkty
+      // jsou pro standardní WC tok (template_redirect) nastaveny jako
+      // is_purchasable=false, proto POST na permalink vždy selže.
+      // Náš endpoint obchází is_purchasable, ale nechá CFB filtry (add_cart_item_data,
+      // add_to_cart_validation) proběhnout normálně přes $_POST['cfb_flavor_selection'].
       $.ajax(
       {
         url:    SP_Archive.ajax_url,
@@ -630,6 +670,7 @@
               }
             });
           }
+
 
           addBtn.textContent = '✓ Přidáno';
           setTimeout(function ()
