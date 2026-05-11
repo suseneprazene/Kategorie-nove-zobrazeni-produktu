@@ -51,23 +51,24 @@
   margin-top: 6px;
 }
 
-/* Inline akce – skryté, rozbalí se třídou .open */
+/* Inline akce – vždy viditelné, schováme je jen na produktech bez .open */
 .sp-inline-actions {
   max-height: 0;
   overflow: hidden;
   opacity: 0;
-  transition: max-height 0.35s ease, opacity 0.3s ease, margin-top 0.3s ease;
+  transition: max-height 0.5s ease, opacity 0.3s ease, margin-top 0.3s ease;
   margin-top: 0;
 }
 
 .sp-product-item.open .sp-inline-actions {
-  max-height: 300px;
-  opacity: 1;
+  max-height: 2000px !important;
+  overflow: visible !important;
+  opacity: 1 !important;
   margin-top: 8px;
 }
 
 /* Na mobilu inline akce schováme */
-@media (max-width: 768px) {
+@media (max-width: 921px) {
   .sp-inline-actions {
     display: none;
   }
@@ -396,7 +397,7 @@
 }
 
 /* ── Mobil ── */
-@media (max-width: 768px) {
+@media (max-width: 921px) {
   .sp-archive-outer {
     padding: 24px 16px;
   }
@@ -467,4 +468,318 @@
     flex-wrap: wrap;
     align-items: center;
   }
+}
+
+/* ============================================================
+   OPRAVA MOBILNÍHO LAYOUTU – přepíše zastaralé pravidla výše
+   ============================================================ */
+
+/* Breakpoint: tablet + mobil = přepnout do jednoho sloupce */
+@media (max-width: 921px) {
+
+  .sp-archive-outer {
+    padding: 16px 16px;
+  }
+
+  /* Celý wrapper do jednoho sloupce */
+  .sp-archive-wrapper {
+    flex-direction: column !important;
+    gap: 0 !important;
+  }
+
+  /* Pravý obrázek panel – schovat */
+  .sp-product-panel {
+    display: none !important;
+  }
+
+  /* Inline akce (desktop) – schovat */
+  .sp-inline-actions {
+    display: none !important;
+  }
+
+  /* Každý produkt – kliknutelný styl zrušit */
+  .sp-product-item {
+    cursor: default !important;
+    padding: 16px 0 !important;
+  }
+
+  /* Popis – vždy viditelný */
+  .sp-product-desc {
+    max-height: none !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    margin-top: 6px !important;
+  }
+
+  /* Mobilní panel – zobrazit */
+  .sp-mobile-panel {
+    display: block !important;
+    margin-top: 10px !important;
+  }
+
+  /* Obrázek produktu */
+  .sp-mobile-img {
+    width: 100% !important;
+    height: auto !important;
+    border-radius: 6px !important;
+    border: 1px solid #111 !important;
+    box-shadow: 4px 4px 0px 0px #111 !important;
+    margin-bottom: 10px !important;
+  }
+
+  /* Cena */
+  .sp-mobile-price {
+    font-size: 1.05rem !important;
+    margin-bottom: 8px !important;
+  }
+
+  /* Varianty */
+  .sp-variation-selects {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .sp-variation-row select {
+    width: 100% !important;
+    padding: 6px 8px !important;
+    border: 1px solid #111 !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    font-size: 0.95rem !important;
+  }
+
+  /* ── Akční řádek: qty ± | DO KOŠÍKU | ZOBRAZIT DETAIL – vše v jedné lince ── */
+  .sp-mobile-panel .sp-action-row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-top: 8px !important;
+    width: 100% !important;
+  }
+
+  /* Qty wrapper se třemi prvky: − input + */
+  .sp-mobile-panel .sp-qty-row {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    border: 1px solid #111 !important;
+    background: #fff !important;
+    overflow: hidden !important;
+  }
+
+  /* ± tlačítka */
+  .sp-mobile-panel .sp-qty-row .sp-qty-minus,
+  .sp-mobile-panel .sp-qty-row .sp-qty-plus {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 32px !important;
+    height: 40px !important;
+    background: #fff !important;
+    color: #111 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-size: 1.3rem !important;
+    font-weight: 400 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+    line-height: 1 !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    transform: none !important;
+    transition: background 0.15s, color 0.15s !important;
+    -webkit-tap-highlight-color: transparent !important;
+  }
+  .sp-mobile-panel .sp-qty-row .sp-qty-minus:active,
+  .sp-mobile-panel .sp-qty-row .sp-qty-plus:active {
+    background: #111 !important;
+    color: #fff !important;
+  }
+
+  /* Input množství */
+  .sp-mobile-panel .sp-qty-row .sp-qty {
+    width: 36px !important;
+    height: 40px !important;
+    text-align: center !important;
+    border: none !important;
+    border-left: 1px solid #ccc !important;
+    border-right: 1px solid #ccc !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #111 !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    -moz-appearance: textfield !important;
+    appearance: textfield !important;
+  }
+  .sp-mobile-panel .sp-qty-row .sp-qty::-webkit-outer-spin-button,
+  .sp-mobile-panel .sp-qty-row .sp-qty::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+  }
+
+  /* Tlačítko DO KOŠÍKU – roztáhne se do zbytku */
+  .sp-mobile-panel .sp-action-row .sp-inline-cart-btn,
+  .sp-mobile-panel .sp-action-row .custom-product-btn {
+    flex: 1 1 auto !important;
+    white-space: nowrap !important;
+    font-size: 0.82rem !important;
+    padding: 0 10px !important;
+    height: 40px !important;
+    min-width: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* ZOBRAZIT DETAIL – kompaktní, pevná šíře */
+  .sp-mobile-panel .sp-action-row .sp-detail-btn,
+  .sp-mobile-panel .sp-action-row a.sp-detail-btn {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    font-size: 0.75rem !important;
+    padding: 0 8px !important;
+    height: 40px !important;
+    text-decoration: none !important;
+    border: 1px solid #111 !important;
+    color: #111 !important;
+    background: #fff !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.02em !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: none !important;
+    transform: none !important;
+    transition: background 0.15s, color 0.15s !important;
+  }
+  .sp-mobile-panel .sp-action-row a.sp-detail-btn:hover {
+    background: #111 !important;
+    color: #fff !important;
+    font-size: 0.75rem !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   KRITICKÁ OPRAVA – mobilní panel layout + obrázek
+   ============================================================ */
+@media (max-width: 921px) {
+
+  /* Panel MUSÍ být blokový – ne flex (Astra nebo child CSS může přepsat) */
+  .sp-mobile-panel,
+  div.sp-mobile-panel {
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    float: none !important;
+  }
+
+  /* Obrázek – celá šíře, nikdy vedle textu */
+  .sp-mobile-panel .sp-mobile-img,
+  .sp-mobile-panel img.sp-mobile-img {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    float: none !important;
+    margin: 0 0 10px 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Zajistit že sp-product-item je také blokový a celé šíře */
+  .sp-product-item,
+  div.sp-product-item {
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  /* sp-product-list – plná šíře */
+  .sp-product-list {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+    min-width: 0 !important;
+  }
+}
+/* ── Hlídací pes v archivu kategorií ── */
+/* Viditelnost řeší .sp-inline-actions přes .open – žádné extra show/hide není třeba */
+
+.sp-hlidaci-pes-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.sp-hlidaci-pes-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sp-hlidaci-label {
+  font-size: 0.85rem;
+  color: #444;
+  margin: 0 0 4px 0;
+  line-height: 1.4;
+}
+
+.sp-hlidaci-label .sp-out-of-stock {
+  color: #c00;
+  font-weight: 600;
+}
+
+.sp-hlidaci-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.sp-hlidaci-icon {
+  /* Výška odpovídá výšce inputu */
+  width: auto;
+  height: 32px;
+  flex-shrink: 0;
+  color: #333;
+}
+
+.sp-hlidaci-form .sp-hlidaci-email {
+  flex: 1;
+  min-width: 120px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 0.83rem;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.sp-hlidaci-form .sp-hlidaci-btn {
+  font-size: 0.78rem;
+  padding: 0 10px;
+  height: 32px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sp-hlidaci-response {
+  font-size: 0.8rem;
+  margin: 2px 0 0;
 }

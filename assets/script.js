@@ -36,99 +36,102 @@
     btn.disabled       = true;
     btn.textContent    = '…';
 
-    const item       = btn.closest('.sp-product-item');
-    const productUrl = item ? item.dataset.permalink : null;
-
-    if ( ! productUrl)
+    if (typeof SP_Archive === 'undefined' || ! SP_Archive.ajax_url)
     {
-      console.error('❌ data-permalink chybí na .sp-product-item');
+      console.error('❌ SP_Archive.ajax_url není dostupný');
       btn.textContent = 'Chyba konfigurace';
       btn.disabled    = false;
       return;
     }
 
-    const params = new URLSearchParams();
-    params.append('add-to-cart',  productId);
-    params.append('product_id',   productId);
-    params.append('quantity',     qty);
+    const data = {
+      action:      'sp_add_to_cart',
+      security:    SP_Archive.sp_nonce,
+      product_id:  productId,
+      quantity:    qty,
+    };
 
     if (variationId)
     {
-      params.append('variation_id', variationId);
+      data.variation_id = variationId;
     }
 
     if (variationAttrs && typeof variationAttrs === 'object')
     {
       Object.keys(variationAttrs).forEach(function (key)
       {
-        params.append(key, variationAttrs[key]);
+        data[key] = variationAttrs[key];
       });
     }
 
+    console.group('🛒 addToCart – odesílám přes admin-ajax sp_add_to_cart');
+    console.log('data:', data);
+    console.groupEnd();
+
     $.ajax(
     {
-      url:         productUrl,
-      method:      'POST',
-      contentType: 'application/x-www-form-urlencoded',
-      data:        params.toString(),
-      success: function ()
+      url:    SP_Archive.ajax_url,
+      method: 'POST',
+      data:   data,
+      success: function (response)
       {
-        // Nejdřív refresh fragmentů – teprve po jeho dokončení
-        // zobrazíme potvrzení, aby byl minikošík aktuální
-        if (typeof SP_Archive !== 'undefined' && SP_Archive.wc_ajax_url)
-        {
-          $.ajax(
-          {
-            url:    SP_Archive.wc_ajax_url.replace('%%endpoint%%', 'get_refreshed_fragments'),
-            method: 'POST',
-            success: function (response)
-            {
-              if (response && response.fragments)
-              {
-                $.each(response.fragments, function (key, value)
-                {
-                  if ($(key).length)
-                  {
-                    $(key).replaceWith(value);
-                  }
-                });
-                $(document.body).trigger('wc_fragments_refreshed');
-              }
+        console.log('✅ response:', response);
 
-              // Fragmenty jsou v DOMu – teprve teď potvrdit uživateli
-              btn.textContent = '✓ Přidáno';
-              setTimeout(function ()
-              {
-                btn.textContent = originalText;
-                btn.disabled    = false;
-              }, 2000);
-            },
-            error: function ()
-            {
-              // Refresh fragmentů selhal, ale produkt byl přidán
-              btn.textContent = '✓ Přidáno';
-              setTimeout(function ()
-              {
-                btn.textContent = originalText;
-                btn.disabled    = false;
-              }, 2000);
-            }
-          });
-        }
-        else
+        if ( ! response || ! response.success)
         {
-          // SP_Archive není k dispozici – jen potvrdit přidání
-          btn.textContent = '✓ Přidáno';
-          setTimeout(function ()
-          {
+          const rawMsg = (response && response.data && response.data.message) || 'Chyba';
+          // Dekódovat HTML entity (např. &mdash; → –)
+          const tmp = document.createElement('div');
+          tmp.innerHTML = rawMsg;
+          const msg = tmp.textContent || tmp.innerText || rawMsg;
+          console.error('❌ Chyba:', msg);
+
+          // Rozlišit chybu skladu od ostatních chyb
+          const isStockError = /skladem|košíku|množství/i.test(msg);
+          if (isStockError) {
+            // Zobrazit hláška o skladu pod tlačítkem
+            var stockMsg = btn.closest('.sp-inline-bottom-row, .sp-action-row, .sp-inline-actions, .sp-mobile-panel');
+            if (stockMsg) {
+              var existing = stockMsg.querySelector('.sp-stock-notice');
+              if ( ! existing) {
+                existing = document.createElement('p');
+                existing.className = 'sp-stock-notice';
+                existing.style.cssText = 'color:#cc0000;font-size:0.88rem;margin:6px 0 0;width:100%;';
+                stockMsg.appendChild(existing);
+              }
+              existing.textContent = 'Bohužel, více kusů není skladem.';
+              setTimeout(function () {
+                if (existing.parentNode) existing.parentNode.removeChild(existing);
+              }, 4000);
+            }
             btn.textContent = originalText;
             btn.disabled    = false;
-          }, 2000);
+          } else {
+            btn.textContent = 'Chyba';
+            setTimeout(function () { btn.textContent = originalText; btn.disabled = false; }, 2500);
+          }
+          return;
         }
+
+        if (response.data && response.data.fragments)
+        {
+          $.each(response.data.fragments, function (key, value)
+          {
+            if ($(key).length) $(key).replaceWith(value);
+          });
+          $(document.body).trigger('wc_fragments_refreshed');
+        }
+
+        btn.textContent = '✓ Přidáno';
+        setTimeout(function ()
+        {
+          btn.textContent = originalText;
+          btn.disabled    = false;
+        }, 2000);
       },
       error: function (jqXHR, textStatus)
       {
-        console.error('💥 addToCart selhal:', textStatus, jqXHR.status);
+        console.error('💥 AJAX selhal:', textStatus, jqXHR.status);
         btn.textContent = 'Chyba spojení';
         setTimeout(function () { btn.textContent = originalText; btn.disabled = false; }, 2000);
       }
@@ -137,17 +140,24 @@
 
   // ── Resolve inline variace ───────────────────────────────────
 
-  function resolveInlineVariation(item)
+  function resolveInlineVariation(item, btn)
   {
     const type       = item.dataset.type;
     const variations = JSON.parse(item.dataset.variations || '[]');
 
+    console.group('🔍 resolveInlineVariation – produkt #' + item.dataset.id + ' (' + item.dataset.name + ')');
+    console.log('Typ produktu:', type);
+    console.log('Variace z data-variations:', variations);
+
     if (type !== 'variable')
     {
+      console.log('→ Jednoduchý produkt, žádná varianta potřeba.');
+      console.groupEnd();
       return { variationId: null, attrs: {} };
     }
 
-    const selects  = item.querySelectorAll('.sp-inline-variation-select');
+    const panel   = (btn && (btn.closest('.sp-inline-actions') || btn.closest('.sp-mobile-panel'))) || item;
+    const selects = panel.querySelectorAll('.sp-inline-variation-select, .sp-variation-select');
     const selected = {};
 
     selects.forEach(function (sel)
@@ -155,10 +165,18 @@
       selected[sel.dataset.attribute] = sel.value;
     });
 
+    console.log('Panel:', panel.className);
+    console.log('Nalezené selecty (' + selects.length + '):', Array.from(selects).map(function(s){ return { class: s.className, attribute: s.dataset.attribute, value: s.value }; }));
+    console.log('Vybrané hodnoty:', selected);
+
     const allChosen = Object.values(selected).every(function (v) { return v !== ''; });
+    console.log('Všechny atributy vybrány?', allChosen);
 
     if ( ! allChosen )
     {
+      const missing = Object.entries(selected).filter(function([k,v]){ return v === ''; }).map(function([k]){ return k; });
+      console.warn('⚠️ Chybí výběr u atributů:', missing);
+      console.groupEnd();
       return { variationId: null, attrs: selected, incomplete: true };
     }
 
@@ -170,11 +188,41 @@
       });
     });
 
-    if ( ! match ) return { variationId: null, attrs: selected, noMatch: true };
+    console.log('Hledám shodu pro:', selected);
+    console.log('Nalezená variace:', match || '❌ žádná shoda');
 
-    if ( match.in_stock === false ) return { variationId: match.id, attrs: selected, outOfStock: true };
+    if ( ! match )
+    {
+      console.warn('⚠️ Žádná variace neodpovídá vybraným atributům.');
+      console.log('Dostupné kombinace atributů:');
+      variations.forEach(function(v, i){
+        console.log('  [' + i + ']', v.attributes, '→ in_stock:', v.in_stock, '| id:', v.id);
+      });
+      console.groupEnd();
+      return { variationId: null, attrs: selected, noMatch: true };
+    }
 
-    return { variationId: match.id, attrs: selected };
+    if ( match.in_stock === false )
+    {
+      console.warn('⚠️ Variace nalezena, ale není skladem. ID:', match.id);
+      console.groupEnd();
+      return { variationId: match.id, attrs: selected, outOfStock: true };
+    }
+
+    console.log('✅ Variace nalezena a skladem. ID:', match.id);
+    console.groupEnd();
+
+    // Obnovit pa_ prefix pro taxonomy atributy.
+    // PHP archive-product.php normalizuje attribute_pa_varianty → attribute_varianty
+    // aby JS selecty seděly. Před odesláním na server musíme prefix obnovit,
+    // jinak WC()->cart->add_to_cart() vrátí "Neplatná hodnota pro Varianty".
+    const attrsWithPa = {};
+    Object.keys(match.attributes).forEach(function(key) {
+      const paKey = key.replace(/^attribute_(?!pa_)/, 'attribute_pa_');
+      attrsWithPa[paKey] = match.attributes[key];
+    });
+
+    return { variationId: match.id, attrs: attrsWithPa };
   }
 
   // ── Inicializace ─────────────────────────────────────────────
@@ -184,7 +232,6 @@
     const items = document.querySelectorAll('.sp-product-item');
     if ( ! items.length ) return;
 
-    // Přidej třídu has-bundle pro produkty s bundle náhledem (fb fixed bundles)
     items.forEach(function (item)
     {
       if (item.querySelector('.fb-bundle-preview'))
@@ -193,9 +240,8 @@
       }
     });
 
-    // ── CFB Bundle Modal (bundles.php / flavor selector) ────────────────────
+    // ── CFB Bundle Modal ────────────────────────────────────────
 
-    // Vytvoříme modal element (pouze jednou)
     var cfbBundleModal = document.getElementById('sp-cfb-bundle-modal');
     if ( ! cfbBundleModal)
     {
@@ -223,7 +269,7 @@
     var cfbCurrentPermalink  = null;
     var cfbRequiredQty       = 0;
     var cfbPollInterval      = null;
-    var cfbAddToCartNonce    = null; // nonce pro sp_cfb_add_to_cart endpoint
+    var cfbAddToCartNonce    = null;
 
     // ── CFB Manual override – cross-section + button ──────────────────────────
     // CFB enforces a per-data-category total limit. When a bundle has multiple
@@ -263,15 +309,11 @@
       {
         var buttons = el.querySelectorAll('.cfb-plus[data-flavor-id]');
 
-        // Both conditions must hold for the SAME ancestor element.
         if (buttons.length > 0 && buttons.length < allButtons.length)
         {
           var limitMatch = el.textContent.match(/Limit[:\s]+(\d+)/i);
           if (limitMatch)
           {
-            // Sum DOM visual counters (the element immediately before each +
-            // button) to get the per-section total.  Using DOM counters instead
-            // of the JSON avoids double-counting flavors shared between sections.
             var sectionTotal = 0;
             buttons.forEach(function (btn)
             {
@@ -285,8 +327,6 @@
             });
             return { limit: parseInt(limitMatch[1], 10), total: sectionTotal };
           }
-          // Has fewer buttons but no Limit: text at this level – keep walking up
-          // to find a higher-level section container that carries the Limit header.
         }
 
         el = el.parentElement;
@@ -308,10 +348,8 @@
       {
         var rawAfter = selInput ? selInput.value : null;
 
-        // CFB updated normally – nothing to do.
         if (rawAfter !== rawBefore) return;
 
-        // CFB blocked the click. Check if we should override.
         if ( ! rawAfter) return;
 
         var sel;
@@ -323,31 +361,20 @@
           return s + parseInt(v.qty || 0, 10);
         }, 0);
 
-        // Only override if the required global total hasn't been reached yet.
         if (cfbRequiredQty <= 0 || total >= cfbRequiredQty) return;
 
         var flavorId = plusBtn.dataset.flavorId || plusBtn.getAttribute('data-flavor-id');
         if ( ! flavorId || sel[flavorId] === undefined) return;
 
-        // Block the override when the specific section containing this button
-        // is already full.  Uses DOM visual counters so shared flavors are
-        // counted correctly per section instance (not the JSON global qty).
-        // When the section cannot be determined (sectionInfo is null), also
-        // block the override – we cannot safely verify the section has capacity.
         var sectionInfo = cfbGetSectionInfoFromDom(plusBtn);
         if ( ! sectionInfo || sectionInfo.total >= sectionInfo.limit)
         {
           return;
         }
 
-        // Increment the flavor qty in cfb_flavor_selection.
         sel[flavorId].qty = parseInt(sel[flavorId].qty || 0, 10) + 1;
         selInput.value = JSON.stringify(sel);
 
-        // Increment the per-section-instance DOM visual counter by +1.
-        // Do NOT set it to sel[flavorId].qty (the JSON global value) – that
-        // would show the wrong number when the same flavor appears in multiple
-        // sections.
         var qtyDisplay = plusBtn.previousElementSibling;
         if (qtyDisplay)
         {
@@ -363,26 +390,6 @@
       }, 0);
     }, true);
 
-    // ── CFB Manual minus-sync ──────────────────────────────────────────────────
-    // When a flavor is added via the manual + override (above), CFB's section-
-    // internal counter for that flavor stays at 0.  On a subsequent − click CFB
-    // may:
-    //   (a) "reconcile" the gap between its internal state (0) and the DOM counter
-    //       (1 set by the override) by subtracting both the reconcile delta AND the
-    //       actual decrement in one step → double-decrement (4 → 2 instead of 4 → 3)
-    //   (b) decrement the global JSON without updating the DOM counter because its
-    //       section-internal counter was already 0.
-    //
-    // This handler patches three failure modes (checked in priority order):
-    //   Case A – DOM counter was 0 → CFB should not have changed JSON at all.
-    //            Revert the JSON to rawBefore (false decrement).
-    //   Case C – CFB decremented the flavor's JSON qty by more than 1 (reconcile
-    //            + decrement in one step). Normalize to exactly −1.
-    //   Case B – DOM counter > 0 but CFB did not update it (section-internal
-    //            state mismatch). Manually decrement the DOM counter.
-    //
-    // Case C and Case B may both fire in the same event: C fixes JSON, then B
-    // (if it also detects the DOM counter unchanged) fixes the DOM.
     document.addEventListener('click', function (e)
     {
       var minusBtn = e.target.closest('.cfb-minus');
@@ -395,16 +402,9 @@
 
       var flavorId = minusBtn.dataset.flavorId || minusBtn.getAttribute('data-flavor-id');
 
-      // Locate the qty display element.  Standard CFB row structure:
-      // [.cfb-minus][qty-display][.cfb-plus]
-      // Use the direct next sibling of the minus button so we always reference
-      // the counter for THIS specific row, not a counter from a different section
-      // (parent.querySelector would find the FIRST matching element in the parent
-      // container and could return a button from another section).
       var qtyDisplay = minusBtn.nextElementSibling;
       if (qtyDisplay && qtyDisplay.tagName === 'BUTTON')
       {
-        // No qty element sits between minus and plus in this row.
         qtyDisplay = null;
       }
 
@@ -417,11 +417,8 @@
       setTimeout(function ()
       {
         var rawAfter = selInput ? selInput.value : rawBefore;
-        if (rawAfter === rawBefore) return; // JSON unchanged – nothing to do
+        if (rawAfter === rawBefore) return;
 
-        // ── Case A ────────────────────────────────────────────────────────────
-        // DOM counter was 0 → this section had nothing to remove; CFB still
-        // decremented the global JSON.  Revert.
         if (displayBefore === 0)
         {
           selInput.value = rawBefore;
@@ -429,9 +426,6 @@
           return;
         }
 
-        // ── Case C ────────────────────────────────────────────────────────────
-        // CFB decremented by more than 1 (reconcile + decrement in one step).
-        // Normalize to exactly −1.
         if (flavorId)
         {
           try
@@ -447,13 +441,6 @@
               selInput.value = JSON.stringify(selA);
               syncCfbAddBtn();
 
-              // Unconditionally fix the DOM counter for the section that was clicked.
-              // Case B's conditional check (displayAfter === displayBefore) is not
-              // reliable here: CFB may have set the counter to an unexpected value
-              // (neither displayBefore nor displayBefore−1), causing Case B to skip
-              // the DOM update, which leaves the counter wrong on the next minus click
-              // and triggers Case C again.  Setting it unconditionally to
-              // max(0, displayBefore − 1) guarantees a consistent state after Case C.
               if (qtyDisplay !== null && displayBefore !== null)
               {
                 var caseCDisplay = Math.max(0, displayBefore - 1);
@@ -469,9 +456,6 @@
           catch (ex) { /* JSON parse error – fall through */ }
         }
 
-        // ── Case B ────────────────────────────────────────────────────────────
-        // DOM counter > 0 but CFB did not update it (section-internal mismatch).
-        // Manually decrement the DOM counter.
         if (qtyDisplay !== null && displayBefore !== null && displayBefore > 0)
         {
           var displayAfter = qtyDisplay.tagName === 'INPUT'
@@ -488,11 +472,6 @@
       }, 0);
     }, true);
 
-    /**
-     * Porovná celkový počet vybraných kusů (z #cfb_flavor_selection JSON)
-     * s cfbRequiredQty (celkový limit ze všech sekcí, vrácený ze serveru).
-     * Povolí tlačítko jen tehdy, když je vybrán přesně požadovaný počet.
-     */
     function syncCfbAddBtn()
     {
       var addBtn   = document.getElementById('sp-cfb-bundle-add');
@@ -518,24 +497,22 @@
     {
       cfbBundleModal.classList.remove('sp-cfb-bundle-open');
       if (cfbPollInterval) { clearInterval(cfbPollInterval); cfbPollInterval = null; }
-      // Skryjeme také cfb product-preview modal, pokud byl otevřen uvnitř
       var innerBg  = document.getElementById('cfbModalBg');
       var innerMod = document.getElementById('cfbModal');
       if (innerBg)  innerBg.style.display  = 'none';
       if (innerMod) innerMod.style.display = 'none';
     }
 
-// Klik na backdrop NEMÁ modal zavřít – zavírá se jen křížkem
-document.getElementById('sp-cfb-bundle-backdrop').addEventListener('click', function (e)
-{
-  e.preventDefault();
-  e.stopPropagation();
-  e.stopImmediatePropagation();
-}, true);
+    // Klik na backdrop NEMÁ modal zavřít – zavírá se jen křížkem
+    document.getElementById('sp-cfb-bundle-backdrop').addEventListener('click', function (e)
+    {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }, true);
 
-document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCfbBundleModal);
+    document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCfbBundleModal);
 
-    // Klávesa Escape zavře modal
     document.addEventListener('keydown', function (e)
     {
       if (e.key === 'Escape' && cfbBundleModal.classList.contains('sp-cfb-bundle-open'))
@@ -544,7 +521,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       }
     });
 
-    // Klik na tlačítko "VÝBĚR PRODUKTŮ"
     document.addEventListener('click', function (e)
     {
       var btn = e.target.closest('.sp-bundle-select-btn');
@@ -561,7 +537,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       var addBtn   = document.getElementById('sp-cfb-bundle-add');
       var msgEl    = document.getElementById('sp-cfb-bundle-msg');
 
-      // Výchozí stav modalu
       titleEl.textContent  = item ? item.dataset.name : '';
       bodyEl.innerHTML     = '<div class="sp-cfb-bundle-loading">Načítám…</div>';
       addBtn.disabled      = true;
@@ -570,7 +545,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
 
       cfbBundleModal.classList.add('sp-cfb-bundle-open');
 
-      // Načteme bundle UI přes AJAX (renderuje cfb plugin server-side)
       $.ajax(
       {
         url:    SP_Archive.ajax_url,
@@ -599,7 +573,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
           if (cfbPollInterval) clearInterval(cfbPollInterval);
           cfbPollInterval = setInterval(syncCfbAddBtn, 150);
 
-          // Inicializační sync (výběr je prázdný → disabled)
           syncCfbAddBtn();
         },
         error: function ()
@@ -609,7 +582,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       });
     });
 
-    // Klik na "PŘIDAT DO KOŠÍKU" uvnitř bundle modalu
     document.getElementById('sp-cfb-bundle-add').addEventListener('click', function ()
     {
       if (this.disabled) return;
@@ -618,7 +590,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       var selectionInput = document.getElementById('cfb_flavor_selection');
       var selectionValue = selectionInput ? selectionInput.value : '';
 
-      // Základní klientská validace: alespoň jedna položka musí být vybrána
       if ( ! selectionValue)
       {
         document.getElementById('sp-cfb-bundle-msg').textContent = 'Prosím vyberte položky balíčku.';
@@ -635,7 +606,7 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
           return;
         }
       }
-      catch (e) { /* Pokud JSON parsování selže, necháme server validovat */ }
+      catch (e) { /* necháme server validovat */ }
 
       var addBtn = this;
       addBtn.disabled    = true;
@@ -659,7 +630,7 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
           product_id:           cfbCurrentProductId,
           cfb_flavor_selection: selectionValue
         },
-        success: function (response, status, jqXHR)
+        success: function (response)
         {
           if ( ! response || ! response.success)
           {
@@ -671,7 +642,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
             return;
           }
 
-          // Aplikujeme fragmenty košíku ze serveru, pak záložní refresh
           var frags = response.data && response.data.fragments;
           if (frags && Object.keys(frags).length > 0)
           {
@@ -710,7 +680,7 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
             addBtn.disabled    = false;
           }, 1500);
         },
-        error: function (jqXHR, textStatus, errorThrown)
+        error: function ()
         {
           document.getElementById('sp-cfb-bundle-msg').textContent = 'Chyba při přidávání do košíku.';
           addBtn.textContent = 'PŘIDAT DO KOŠÍKU';
@@ -719,7 +689,7 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       });
     });
 
-    // ── Backdrop pro fb-modal (bundle quick-view z fixed-bundles.php) ───────
+    // ── Backdrop pro fb-modal ───────────────────────────────────
     var fbModal = document.getElementById('fb-modal');
     if (fbModal)
     {
@@ -737,10 +707,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       {
         fbModal.style.display = 'none';
       });
-
-      // ── Oprava šipek navigace a názvu varianty v modálu ─────────────────
-      // fb-quick-view.js zpracuje zobrazení modálu; my sledujeme aktuální
-      // pozici a doplníme název varianty do <h2> po každém načtení obsahu.
 
       var spFbContainer    = null;
       var spFbCurrentIndex = 0;
@@ -767,9 +733,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
         if (prevBtn) prevBtn.style.display = spFbCurrentIndex > 0 ? 'block' : 'none';
         if (nextBtn) nextBtn.style.display = spFbCurrentIndex < spFbTotalItems - 1 ? 'block' : 'none';
 
-        // Přepíšeme název v <h2> správným názvem varianty.
-        // Guard: nastavíme jen pokud se text liší – jinak by mutace textu
-        // znovu spustila tento observer a vznikla by nekonečná smyčka.
         if (spFbItemName && fbModalContent)
         {
           var h2 = fbModalContent.querySelector('h2');
@@ -777,7 +740,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
         }
       }
 
-      // Klik na položku preview – zaznamenej kontejner, index a název
       document.addEventListener('click', function (e)
       {
         var previewItem = e.target.closest('.fb-preview-item');
@@ -791,14 +753,12 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
           spFbItemName     = nameEl ? nameEl.textContent.trim() : '';
         }
 
-        // Šipka zpět
         if (e.target.closest('#fb-modal-prev'))
         {
           spFbCurrentIndex = Math.max(0, spFbCurrentIndex - 1);
           spFbItemName     = spFbGetNameFromContainer(spFbContainer, spFbCurrentIndex);
         }
 
-        // Šipka vpřed
         if (e.target.closest('#fb-modal-next'))
         {
           spFbCurrentIndex = Math.min(spFbTotalItems - 1, spFbCurrentIndex + 1);
@@ -806,7 +766,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
         }
       });
 
-      // Po načtení obsahu modálu (AJAX hotový) oprav šipky a název
       var fbModalContent = document.getElementById('fb-modal-content');
       if (fbModalContent)
       {
@@ -827,13 +786,13 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
     {
       item.addEventListener('click', function (e)
       {
-        // Ignoruj klik na interaktivní prvky
         if (
           e.target.closest('.sp-inline-cart-btn') ||
           e.target.closest('.sp-bundle-select-btn') ||
           e.target.closest('.sp-detail-btn')      ||
           e.target.closest('select')              ||
           e.target.closest('input')               ||
+          e.target.closest('.sp-hlidaci-btn')     ||
           e.target.closest('.fb-bundle-preview')  ||
           e.target.closest('#fb-modal')
         ) return;
@@ -842,7 +801,6 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
 
         const isOpen = item.classList.contains('open');
 
-        // Zavři všechny
         items.forEach(function (i) { i.classList.remove('open'); });
 
         if ( ! isOpen)
@@ -859,14 +817,25 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
       const btn = e.target.closest('.sp-inline-cart-btn');
       if ( ! btn ) return;
 
+      // Zabránit dvojímu odeslání (bubbling nebo dva listenery)
+      e.stopPropagation();
+
+      // Ochrana proti double-click / double-submit
+      if (btn.dataset.adding === '1') return;
+      btn.dataset.adding = '1';
+      setTimeout(function () { delete btn.dataset.adding; }, 3000);
+
       const item = btn.closest('.sp-product-item');
       if ( ! item ) return;
 
       const productId = item.dataset.id;
-      const qtyInput  = item.querySelector('.sp-inline-qty');
-      const qty       = qtyInput ? parseInt(qtyInput.value, 10) : 1;
 
-      const result = resolveInlineVariation(item);
+      // Vzít qty ze stejného panelu jako tlačítko (inline nebo mobil), ne z celého itemu
+      const panel  = btn.closest('.sp-inline-actions') || btn.closest('.sp-mobile-panel') || item;
+      const qtyInput = panel.querySelector('.sp-qty, .sp-inline-qty');
+      const qty    = qtyInput ? parseInt(qtyInput.value, 10) || 1 : 1;
+
+      const result = resolveInlineVariation(item, btn);  // ← přidáte , btn
 
       if (result.incomplete)
       {
@@ -918,11 +887,9 @@ document.getElementById('sp-cfb-bundle-close').addEventListener('click', closeCf
 
       if ( ! match ) return;
 
-      // Inline cena
       const inlinePrice = item.querySelector('.sp-inline-price');
       if (inlinePrice) inlinePrice.innerHTML = match.price_html;
 
-      // Obrázek v pravém panelu (jen pokud je item open)
       if (item.classList.contains('open'))
       {
         switchImage(match.image);
