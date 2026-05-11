@@ -783,3 +783,75 @@
   font-size: 0.8rem;
   margin: 2px 0 0;
 }
+
+
+/* ============================================================
+   DETAIL PRODUKTU – hlídací pes pod variantami
+   Zrcadlí .sp-hlidaci-* ze šablony archivu
+   ============================================================ */
+
+#hp-variation-wrapper {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e8e8e8;
+}
+
+/* Zpráva "Varianta X není skladem." */
+#hp-variation-msg {
+  color: #c00 !important;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 0 0 2px 0 !important;
+  line-height: 1.4;
+}
+
+/* "Mám Tě informovat...?" */
+#hp-variation-question {
+  font-size: 0.85rem;
+  color: #444;
+  margin: 0 0 6px 0 !important;
+  line-height: 1.4;
+}
+
+/* Řádek formuláře: ikona + input + tlačítko */
+#hp-variation-form-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+#hp-variation-form-row .sp-hlidaci-icon {
+  width: auto;
+  height: 32px;
+  flex-shrink: 0;
+  color: #333;
+}
+
+#hp-variation-form-row .sp-hlidaci-email {
+  flex: 1;
+  min-width: 120px;
+  height: 40px;
+  padding: 0 10px;
+  font-size: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+
+#hp-variation-form-row .sp-hlidaci-btn {
+  height: 40px;
+  padding: 0 16px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: normal !important;
+  overflow: visible !important;
+}
+
+#hp-variation-response {
+  font-size: 0.85rem;
+  margin: 6px 0 0 !important;
+}
