@@ -782,34 +782,44 @@
     }
 
     // ── Klik na produkt – toggle .open ──
-    items.forEach(function (item)
+items.forEach(function (item)
+{
+  item.addEventListener('click', function (e)
+  {
+    if (
+      e.target.closest('.sp-inline-cart-btn') ||
+      e.target.closest('.sp-bundle-select-btn') ||
+      e.target.closest('.sp-detail-btn')      ||
+      e.target.closest('select')              ||
+      e.target.closest('input')               ||
+      e.target.closest('.sp-hlidaci-btn')     ||
+      e.target.closest('.fb-bundle-preview')  ||
+      e.target.closest('#fb-modal')
+    ) return;
+
+    if (isTouchDevice()) return;
+
+    const isOpen = item.classList.contains('open');
+
+    // Pokud je v seznamu jen 1 produkt, nikdy ho nezabaluj
+    if (items.length === 1)
     {
-      item.addEventListener('click', function (e)
-      {
-        if (
-          e.target.closest('.sp-inline-cart-btn') ||
-          e.target.closest('.sp-bundle-select-btn') ||
-          e.target.closest('.sp-detail-btn')      ||
-          e.target.closest('select')              ||
-          e.target.closest('input')               ||
-          e.target.closest('.sp-hlidaci-btn')     ||
-          e.target.closest('.fb-bundle-preview')  ||
-          e.target.closest('#fb-modal')
-        ) return;
+      if ( ! isOpen ) {
+        item.classList.add('open');
+        switchImage(item.dataset.img);
+      }
+      return;
+    }
 
-        if (isTouchDevice()) return;
+    items.forEach(function (i) { i.classList.remove('open'); });
 
-        const isOpen = item.classList.contains('open');
-
-        items.forEach(function (i) { i.classList.remove('open'); });
-
-        if ( ! isOpen)
-        {
-          item.classList.add('open');
-          switchImage(item.dataset.img);
-        }
-      });
-    });
+    if ( ! isOpen )
+    {
+      item.classList.add('open');
+      switchImage(item.dataset.img);
+    }
+  });
+});
 
     // ── Přidání do košíku ──
     document.addEventListener('click', function (e)
