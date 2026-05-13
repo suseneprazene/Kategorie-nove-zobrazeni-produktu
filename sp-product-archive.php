@@ -15,6 +15,8 @@ class SP_Product_Archive
         add_filter( 'template_include', [ $this, 'override_category_template' ], 99 );
         add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'wp_enqueue_scripts', [ $this, 'maybe_enqueue_bundle_assets' ], 20 );
+        add_action( 'wp_ajax_sp_add_to_cart',            [ $this, 'ajax_add_to_cart' ] );
+        add_action( 'wp_ajax_nopriv_sp_add_to_cart',     [ $this, 'ajax_add_to_cart' ] );
         add_action( 'wp_ajax_sp_cfb_bundle_ui',         [ $this, 'ajax_cfb_bundle_ui' ] );
         add_action( 'wp_ajax_nopriv_sp_cfb_bundle_ui',  [ $this, 'ajax_cfb_bundle_ui' ] );
         add_action( 'wp_ajax_sp_cfb_add_to_cart',        [ $this, 'ajax_cfb_add_to_cart' ] );
@@ -64,7 +66,7 @@ class SP_Product_Archive
         wp_localize_script( 'sp-product-archive', 'SP_Archive', [
             'ajax_url'      => admin_url( 'admin-ajax.php' ),
             'wc_ajax_url'   => WC_AJAX::get_endpoint( '%%endpoint%%' ),
-            'nonce'         => wp_create_nonce( 'sp-add-to-cart' ),
+            'sp_nonce'      => wp_create_nonce( 'sp-add-to-cart' ),
             'currency'      => get_woocommerce_currency_symbol(),
         ]);
     }
@@ -112,6 +114,83 @@ class SP_Product_Archive
         if ( wp_style_is( 'fb-modal-styles', 'registered' ) ) {
             wp_enqueue_style( 'fb-modal-styles' );
         }
+    }
+
+    /**
+     * AJAX handler: přidá jednoduchý nebo variabilní produkt do košíku.
+     *
+     * Volá WC()->cart->add_to_cart() přímo z admin-ajax kontextu.
+     * Nonce klíč: 'sp-add-to-cart' (stejný jako v wp_localize_script).
+     */
+    public function ajax_add_to_cart()
+    {
+        // Ověř nonce – akce musí sedět s wp_create_nonce() v enqueue_assets().
+        if ( ! check_ajax_referer( 'sp-add-to-cart', 'security', false ) ) {
+            wp_send_json_error( [ 'message' => 'Neplatný bezpečnostní token.' ], 403 );
+        }
+
+        $product_id   = absint( $_POST['product_id']   ?? 0 );
+        $variation_id = absint( $_POST['variation_id'] ?? 0 );
+        $quantity     = max( 1, absint( $_POST['quantity'] ?? 1 ) );
+
+        if ( ! $product_id ) {
+            wp_send_json_error( [ 'message' => 'Chybí ID produktu.' ], 400 );
+        }
+
+        $product = wc_get_product( $product_id );
+        if ( ! $product ) {
+            wp_send_json_error( [ 'message' => 'Produkt nebyl nalezen.' ], 404 );
+        }
+
+        // Sbíráme atributy variace (attribute_pa_* nebo attribute_*)
+        $variation_attrs = [];
+        foreach ( $_POST as $key => $value ) {
+            if ( str_starts_with( $key, 'attribute_' ) ) {
+                $variation_attrs[ sanitize_key( $key ) ] = wc_clean( wp_unslash( $value ) );
+            }
+        }
+
+        wc_clear_notices();
+
+        $cart_item_key = WC()->cart->add_to_cart(
+            $product_id,
+            $quantity,
+            $variation_id,
+            $variation_attrs
+        );
+
+        if ( false === $cart_item_key ) {
+            $error_notices = wc_get_notices( 'error' );
+            $messages      = array_map(
+                static function ( $n ) {
+                    return is_array( $n ) ? wp_strip_all_tags( $n['notice'] ?? '' ) : wp_strip_all_tags( $n );
+                },
+                $error_notices
+            );
+            wc_clear_notices();
+            wp_send_json_error( [
+                'message' => implode( ' ', array_filter( $messages ) ) ?: 'Produkt se nepodařilo přidat do košíku.',
+            ] );
+        }
+
+        // Vrátíme fragmenty mini-košíku pro okamžitou aktualizaci widgetu.
+        $fragments = [];
+        try {
+            ob_start();
+            woocommerce_mini_cart();
+            $mini_cart = ob_get_clean();
+            $fragments['div.widget_shopping_cart_content'] =
+                '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>';
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() ) ob_end_clean();
+            $fragments = [];
+        }
+
+        wp_send_json_success( [
+            'cart_item_key' => $cart_item_key,
+            'fragments'     => $fragments,
+            'cart_hash'     => WC()->cart->get_cart_hash(),
+        ] );
     }
 
     /**
