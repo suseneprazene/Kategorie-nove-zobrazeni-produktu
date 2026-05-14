@@ -28,6 +28,7 @@ class SP_Product_Archive
         add_filter( 'woocommerce_get_item_data',               [ $this, 'cfb_display_selection_in_cart' ], 10, 2 );
         add_action( 'woocommerce_checkout_create_order_line_item', [ $this, 'cfb_add_selection_to_order_meta' ], 10, 4 );
         add_filter( 'woocommerce_get_cart_item_from_session',  [ $this, 'cfb_restore_selection_from_session' ], 10, 2 );
+        add_action( 'wp_head', [ $this, 'cfb_cart_inline_styles' ] );
     }
 
     public function override_category_template( $template )
@@ -448,18 +449,17 @@ class SP_Product_Archive
      */
     public function cfb_display_selection_in_cart( array $item_data, array $cart_item ): array
     {
-        // Support both storage keys: sp_cfb_selection (our own) and
-        // cfb_flavor_selection (bundles.php native key).
+        // Zobrazujeme POUZE pokud byl produkt přidán přes archivní modal (sp_cfb_selection).
+        // Produkty přidané přes single product page mají pouze cfb_flavor_selection –
+        // ty zobrazuje bundles.php sám. Tím se zabrání duplicitnímu výpisu.
+        if ( empty( $cart_item['sp_cfb_selection'] ) ) {
+            return $item_data;
+        }
+
         $selection = [];
-        if ( ! empty( $cart_item['sp_cfb_selection'] ) ) {
-            foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+        foreach ( $cart_item['sp_cfb_selection'] as $data ) {
+            if ( isset( $data['qty'] ) && $data['qty'] > 0 ) {
                 $selection[] = $data;
-            }
-        } elseif ( ! empty( $cart_item['cfb_flavor_selection'] ) ) {
-            foreach ( $cart_item['cfb_flavor_selection'] as $data ) {
-                if ( isset( $data['qty'] ) && $data['qty'] > 0 ) {
-                    $selection[] = $data;
-                }
             }
         }
 
@@ -470,16 +470,19 @@ class SP_Product_Archive
         $lines = [];
         foreach ( $selection as $data ) {
             if ( ! empty( $data['name'] ) ) {
-                $lines[] = esc_html( $data['qty'] . '× ' . $data['name'] );
+                $qty     = (int) $data['qty'];
+                $balicek = $qty === 1 ? 'balíček' : ( $qty <= 4 ? 'balíčky' : 'balíčků' );
+                $lines[] = esc_html( $data['name'] . ': ' . $qty . ' ' . $balicek );
             }
         }
 
         if ( ! empty( $lines ) ) {
- /*           $item_data[] = [
-                'key'   => __( 'Výběr balíčku', 'sp-product-archive' ),
-                'value' => implode( '<br>', $lines ),
+            $value = '<span class="cfb-bundle-lines">' . implode( '<br>', $lines ) . '</span>';
+            $item_data[] = [
+                'key'     => 'Obsah balíčku',
+                'value'   => $value,
                 'display' => '',
-            ]; */
+            ];
         }
 
         return $item_data;
@@ -546,6 +549,62 @@ class SP_Product_Archive
             $cart_item['cfb_flavor_selection'] = $values['cfb_flavor_selection'];
         }
         return $cart_item;
+    }
+
+    /**
+     * Inline CSS pro sjednocené zobrazení obsahu balíčku v košíku.
+     * Vypíše se na každé stránce kde je košík nebo checkout.
+     */
+    public function cfb_cart_inline_styles(): void
+    {
+        if ( ! is_cart() && ! is_checkout() && ! is_account_page() ) {
+            return;
+        }
+        ?>
+        <style>
+        /* ── Popis produktu v block košíku – plná šířka, bez ořezu ── */
+        .wc-block-components-product-metadata__description,
+        .wc-block-components-product-metadata__description p,
+        .wc-block-components-product-metadata__description *  {
+            display: block !important;
+            -webkit-line-clamp: unset !important;
+            line-clamp: unset !important;
+            -webkit-box-orient: unset !important;
+            overflow: visible !important;
+            text-overflow: unset !important;
+            white-space: normal !important;
+            max-height: none !important;
+        }
+
+        /* ── Obsah balíčku – sjednocené zobrazení v košíku ──────── */
+
+        /* Skryje klíč „Obsah balíčku" tak, aby zůstal jako label vlevo */
+        .woocommerce-cart-form .cart_item .product-name dl.variation dt,
+        .woocommerce-cart-form .cart_item .product-name dl.variation dd,
+        .wc-block-cart-item__product dl.variation dt,
+        .wc-block-cart-item__product dl.variation dd {
+            display: inline-block;
+            vertical-align: top;
+        }
+
+        /* Každý řádek obsahu balíčku na samostatné lince */
+        .cfb-bundle-lines {
+            display: block;
+        }
+
+        /* Label „Obsah balíčku" – tučně, zarovnání vlevo */
+        dl.variation dt p,
+        dl.variation dt {
+            font-weight: 600;
+        }
+
+        /* Hodnota (seznam produktů) – horizontálně vycentrovaná */
+        dl.variation dd p,
+        dl.variation dd {
+            text-align: center;
+        }
+        </style>
+        <?php
     }
 }   // ← uzavření třídy SP_Product_Archive
 
