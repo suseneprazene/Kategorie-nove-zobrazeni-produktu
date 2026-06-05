@@ -174,24 +174,27 @@ class SP_Product_Archive
             ] );
         }
 
-        // Vrátíme fragmenty mini-košíku pro okamžitou aktualizaci widgetu.
-        $fragments = [];
-        try {
-            ob_start();
-            woocommerce_mini_cart();
-            $mini_cart = ob_get_clean();
-            $fragments['div.widget_shopping_cart_content'] =
-                '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>';
-        } catch ( \Throwable $e ) {
-            if ( ob_get_level() ) ob_end_clean();
-            $fragments = [];
-        }
+// Vrátíme fragmenty mini-košíku pro okamžitou aktualizaci widgetu.
+$fragments  = [];
+$cart_count = WC()->cart->get_cart_contents_count();
 
-        wp_send_json_success( [
-            'cart_item_key' => $cart_item_key,
-            'fragments'     => $fragments,
-            'cart_hash'     => WC()->cart->get_cart_hash(),
-        ] );
+try {
+    ob_start();
+    woocommerce_mini_cart();
+    $mini_cart = ob_get_clean();
+    $fragments['div.widget_shopping_cart_content'] =
+        '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>';
+} catch ( \Throwable $e ) {
+    if ( ob_get_level() ) ob_end_clean();
+    $fragments = [];
+}
+
+wp_send_json_success( [
+    'cart_item_key' => $cart_item_key,
+    'fragments'     => $fragments,
+    'cart_hash'     => WC()->cart->get_cart_hash(),
+    'cart_count'    => $cart_count,
+] );
     }
 
     /**

@@ -113,15 +113,35 @@
           return;
         }
 
-        if (response.data && response.data.fragments)
-        {
-          $.each(response.data.fragments, function (key, value)
-          {
-            if ($(key).length) $(key).replaceWith(value);
-          });
-          $(document.body).trigger('wc_fragments_refreshed');
-        }
+if (response.data && response.data.fragments)
+{
+  $.each(response.data.fragments, function (key, value)
+  {
+    if ($(key).length) $(key).replaceWith(value);
+  });
+}
 
+// Ručně aktualizovat počítadlo v Astra ikoně košíku
+if (typeof response.data.cart_count !== 'undefined')
+{
+  var count = response.data.cart_count;
+
+  // Astra: data-cart-total atribut na ikoně
+  var cartIcon = document.querySelector('.astra-icon[data-cart-total]');
+  if (cartIcon) cartIcon.setAttribute('data-cart-total', count);
+
+  // Astra: badge s počtem (.count uvnitř .ast-site-header-cart)
+  var countBadge = document.querySelector('.ast-site-header-cart .count');
+  if (countBadge) countBadge.textContent = count;
+
+  // WooCommerce standardní fragment event – spustí případné další listenery
+  $(document.body).trigger('wc_fragments_refreshed');
+  $(document.body).trigger('added_to_cart', [response.data.fragments, response.data.cart_hash]);
+}
+else
+{
+  $(document.body).trigger('wc_fragments_refreshed');
+}
         btn.textContent = '✓ Přidáno';
         setTimeout(function ()
         {
@@ -868,43 +888,50 @@ items.forEach(function (item)
       addToCart(productId, result.variationId, qty, result.attrs, btn);
     });
 
-    // ── Změna varianty – aktualizace ceny a obrázku ──
-    document.addEventListener('change', function (e)
+// ── Změna varianty – aktualizace ceny a obrázku ──
+document.addEventListener('change', function (e)
+{
+  const select = e.target.closest('.sp-inline-variation-select, .sp-variation-select');
+  if ( ! select ) return;
+
+  const item       = select.closest('.sp-product-item');
+  const variations = JSON.parse(item.dataset.variations || '[]');
+
+  // Hledat selecty v panelu, kde se změna stala (desktop nebo mobil)
+  const panel    = select.closest('.sp-inline-actions') || select.closest('.sp-mobile-panel') || item;
+  const selects  = panel.querySelectorAll('.sp-inline-variation-select, .sp-variation-select');
+  const selected = {};
+
+  selects.forEach(function (sel)
+  {
+    selected[sel.dataset.attribute] = sel.value;
+  });
+
+  const allChosen = Object.values(selected).every(function (v) { return v !== ''; });
+  if ( ! allChosen ) return;
+
+  const match = variations.find(function (v)
+  {
+    return Object.keys(selected).every(function (key)
     {
-      const select = e.target.closest('.sp-inline-variation-select');
-      if ( ! select ) return;
-
-      const item       = select.closest('.sp-product-item');
-      const variations = JSON.parse(item.dataset.variations || '[]');
-      const selects    = item.querySelectorAll('.sp-inline-variation-select');
-      const selected   = {};
-
-      selects.forEach(function (sel)
-      {
-        selected[sel.dataset.attribute] = sel.value;
-      });
-
-      const allChosen = Object.values(selected).every(function (v) { return v !== ''; });
-      if ( ! allChosen ) return;
-
-      const match = variations.find(function (v)
-      {
-        return Object.keys(selected).every(function (key)
-        {
-          return v.attributes[key] === '' || v.attributes[key] === selected[key];
-        });
-      });
-
-      if ( ! match ) return;
-
-      const inlinePrice = item.querySelector('.sp-inline-price');
-      if (inlinePrice) inlinePrice.innerHTML = match.price_html;
-
-      if (item.classList.contains('open'))
-      {
-        switchImage(match.image);
-      }
+      return v.attributes[key] === '' || v.attributes[key] === selected[key];
     });
+  });
+
+  if ( ! match ) return;
+
+  // Aktualizovat cenu – desktop i mobil
+  const inlinePrice = item.querySelector('.sp-inline-price');
+  if (inlinePrice) inlinePrice.innerHTML = match.price_html;
+
+  const mobilePrice = item.querySelector('.sp-mobile-price');
+  if (mobilePrice) mobilePrice.innerHTML = match.price_html;
+
+  if (item.classList.contains('open'))
+  {
+    switchImage(match.image);
+  }
+});
 
   });
 
